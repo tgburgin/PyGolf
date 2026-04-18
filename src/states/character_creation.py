@@ -28,7 +28,7 @@ C_INPUT_BG  = ( 22,  36,  22)
 C_INPUT_ACT = ( 18,  50,  18)
 C_BTN       = ( 28,  78,  28)
 C_BTN_HOV   = ( 48, 120,  48)
-C_BTN_DIS   = ( 38,  52,  38)
+C_BTN_DIS   = ( 60,  52,  42)   # warm desaturated — distinct from active greens
 C_BTN_SML   = ( 38,  55,  38)
 C_BTN_SML_H = ( 60,  90,  60)
 
