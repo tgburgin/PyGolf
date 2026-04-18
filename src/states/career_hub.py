@@ -424,12 +424,18 @@ class CareerHubState:
             surface.blit(ms, (cx - ms.get_width() // 2, 62))
 
         # ── Tab bar ───────────────────────────────────────────────────────────
+        recommended_tab = self._recommended_tab()
         for i, label in enumerate(TAB_LABELS):
             r = self._tab_rects[i]
             active = (i == self._tab)
             hov    = (self._hov == f"tab:{i}")
             bg = C_TAB_ACT if active else (C_TAB_HOV if hov else C_TAB)
             pygame.draw.rect(surface, bg, r, border_radius=4)
+            # Recommended (but not currently open) tab gets a gold accent
+            # underline so the player's eye is drawn to what's worth doing.
+            if recommended_tab == i and not active:
+                accent = pygame.Rect(r.x + 4, r.bottom - 3, r.width - 8, 3)
+                pygame.draw.rect(surface, C_GOLD, accent, border_radius=2)
             pygame.draw.rect(surface, C_BORDER, r, 1, border_radius=4)
             ts = self.font_med.render(label, True,
                                       C_WHITE if active else C_GRAY)
@@ -916,6 +922,48 @@ class CareerHubState:
                          pygame.Rect(x, y, w, 28), border_radius=6)
         ts = self.font_hdr.render(label, True, (150, 210, 120))
         surface.blit(ts, (x + 10, y + 6))
+
+    def _recommended_tab(self) -> int | None:
+        """Return the index of the tab the player would most benefit from
+        visiting, or None if nothing stands out. Used to draw a subtle
+        gold accent under the recommended tab.
+
+        Priority:
+          1. Equipment (tab 0) — an upgrade is unlocked at the current tour
+             and affordable.
+          2. Staff (tab 1) — staff available for the current tour but none hired.
+          3. Sponsors (tab 2) — no active sponsor but signing deals are offered.
+          4. None — the default next action is simply Play.
+        """
+        p = self.player
+        if p is None:
+            return None
+
+        # 1. Equipment: is there a better affordable set at this tour level?
+        cur_idx = CLUB_SET_ORDER.index(p.club_set_name)
+        for s_idx, s_name in enumerate(CLUB_SET_ORDER):
+            if s_idx <= cur_idx:
+                continue
+            info = CLUB_SETS[s_name]
+            if info["min_tour"] <= p.tour_level and p.money >= info["cost"]:
+                return 0
+
+        # 2. Staff: tour 4+ unlocks staff. Nudge if nothing hired yet and they
+        #    can afford the cheapest eligible hire.
+        if p.tour_level >= 4 and not p.hired_staff:
+            eligible = [(sid, info) for sid, info in STAFF_TYPES.items()
+                        if info["min_tour"] <= p.tour_level]
+            if eligible:
+                min_cost = min(info["hire_cost"] for _, info in eligible)
+                if p.money >= min_cost:
+                    return 1
+
+        # 3. Sponsors: tour 4+ with no active sponsor and at least one offer.
+        if p.tour_level >= 4 and p.active_sponsor is None:
+            if get_available_sponsors(p.tour_level):
+                return 2
+
+        return None
 
     @staticmethod
     def _promotion_requirement_lines(p) -> list[tuple[str, bool]]:
