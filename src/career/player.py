@@ -2,7 +2,10 @@
 Player — the human golfer's profile, stats, inventory, and career history.
 """
 
-from src.golf.club import STARTER_BAG, get_club_bag, CLUB_SETS, CLUB_SET_ORDER
+from src.golf.club         import STARTER_BAG, get_club_bag, CLUB_SETS, CLUB_SET_ORDER
+from src.career.staff       import STAFF_TYPES
+from src.career.sponsorship import is_target_met
+from src.career.majors      import MAJOR_ORDER
 
 NATIONALITIES = [
     "American", "English", "Scottish", "Irish", "Welsh",
@@ -146,7 +149,6 @@ class Player:
 
     def staff_stat_bonus(self, stat_key: str) -> int:
         """Sum of stat bonuses from all hired staff members."""
-        from src.career.staff import STAFF_TYPES
         total = 0
         for sid in self.hired_staff:
             total += STAFF_TYPES.get(sid, {}).get("bonuses", {}).get(stat_key, 0)
@@ -154,7 +156,6 @@ class Player:
 
     def hire_staff(self, staff_id: str) -> bool:
         """Pay hire cost and add staff member. Returns True on success."""
-        from src.career.staff import STAFF_TYPES
         if staff_id in self.hired_staff:
             return False
         info = STAFF_TYPES.get(staff_id)
@@ -193,7 +194,6 @@ class Player:
         """Called at season reset — pay bonus if target met."""
         if self.active_sponsor is None:
             return
-        from src.career.sponsorship import is_target_met
         if is_target_met(self.active_sponsor, self.sponsor_progress):
             bonus = self.active_sponsor["season_bonus"]
             self.earn_money(bonus)
@@ -217,67 +217,10 @@ class Player:
         self._check_achievements()
 
     def apply_tournament_result(self, tournament) -> dict:
-        position   = tournament.get_player_position()
-        prize      = tournament.get_prize_money(position)
-        pts        = tournament.get_season_points(position)
-        is_qschool = getattr(tournament, "is_qschool", False)
-
-        self.earn_money(prize)
-        self.total_earnings     += prize
-        self.events_this_season += 1
-
-        if not is_qschool:
-            # Season points and career stats only count for normal events
-            self.season_points += pts
-
-            if position == 1:
-                self.career_wins += 1
-            if position <= 5:
-                self.career_top5 += 1
-            if position <= 10:
-                self.career_top10 += 1
-
-            # Major win tracking
-            if position == 1 and tournament.is_major:
-                major_id = getattr(tournament, "major_id", None)
-                if major_id and major_id not in self.majors_won:
-                    self.majors_won.append(major_id)
-
-            # Opponent season standings
-            lb = tournament.get_leaderboard()
-            for pos, entry in enumerate(lb, start=1):
-                if not entry["is_player"]:
-                    name = entry["name"]
-                    opp_pts = tournament.get_season_points(pos)
-                    self.opp_season_points[name] = (
-                        self.opp_season_points.get(name, 0) + opp_pts)
-
-        # World ranking points (Tour 4+) — Q-school gives a small boost too
-        from src.career.rankings import get_ranking_points, compute_world_rank
-        rp = get_ranking_points(self.tour_level, position, tournament.is_major)
-        self.world_ranking_points += rp
-        self.world_rank = compute_world_rank(self.world_ranking_points)
-
-        # Sponsor target progress
-        if self.active_sponsor and not is_qschool:
-            t_type = self.active_sponsor["target"]["type"]
-            inc = False
-            if t_type == "win"    and position == 1:  inc = True
-            if t_type == "top5"   and position <= 5:  inc = True
-            if t_type == "top10"  and position <= 10: inc = True
-            if t_type == "played":                    inc = True
-            if inc:
-                self.sponsor_progress[t_type] = (
-                    self.sponsor_progress.get(t_type, 0) + 1)
-
-        # Deduct staff salaries
-        from src.career.staff import STAFF_TYPES
-        for sid in self.hired_staff:
-            salary = STAFF_TYPES.get(sid, {}).get("salary", 0)
-            self.spend_money(salary)
-
-        self._check_achievements()
-        return {"position": position, "prize": prize, "points": pts}
+        # Logic lives in CareerService so the rankings/staff imports it
+        # needs can be at module scope without introducing a circular import.
+        from src.career.service import process_tournament_result
+        return process_tournament_result(self, tournament)
 
     def reset_season(self) -> None:
         self._pay_out_sponsor()
@@ -299,7 +242,6 @@ class Player:
 
     def has_won_game(self) -> bool:
         """Win condition: all 4 Majors won AND World No. 1."""
-        from src.career.majors import MAJOR_ORDER
         all_majors = all(m in self.majors_won for m in MAJOR_ORDER)
         return all_majors and self.world_rank == 1
 

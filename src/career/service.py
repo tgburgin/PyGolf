@@ -6,11 +6,82 @@ States used to call `game.player.apply_tournament_result(...)` and
 or alternative persistence paths without touching every call site. This
 service centralises those transitions so there is one place to instrument.
 
-It is deliberately small: it owns no state, just wraps calls to the Player
-and save system and returns whatever the underlying methods returned.
+It also owns the tournament-result processor so Player no longer has to
+do deferred imports of `rankings` / `staff` / `majors` from inside its own
+methods to dodge a circular import. Player.apply_tournament_result is a
+thin wrapper over process_tournament_result().
 """
 
 from __future__ import annotations
+
+from src.career.rankings import get_ranking_points, compute_world_rank
+from src.career.staff    import STAFF_TYPES
+
+
+def process_tournament_result(player, tournament) -> dict:
+    """Apply a completed tournament's result to `player` and return a
+    summary dict {position, prize, points}.
+
+    Extracted from Player.apply_tournament_result so the cross-cutting
+    imports (rankings, staff) can live at module scope here instead of
+    being deferred into a method on Player to avoid circular imports.
+    """
+    position   = tournament.get_player_position()
+    prize      = tournament.get_prize_money(position)
+    pts        = tournament.get_season_points(position)
+    is_qschool = getattr(tournament, "is_qschool", False)
+
+    player.earn_money(prize)
+    player.total_earnings     += prize
+    player.events_this_season += 1
+
+    if not is_qschool:
+        player.season_points += pts
+
+        if position == 1:
+            player.career_wins += 1
+        if position <= 5:
+            player.career_top5 += 1
+        if position <= 10:
+            player.career_top10 += 1
+
+        if position == 1 and tournament.is_major:
+            major_id = getattr(tournament, "major_id", None)
+            if major_id and major_id not in player.majors_won:
+                player.majors_won.append(major_id)
+
+        lb = tournament.get_leaderboard()
+        for pos, entry in enumerate(lb, start=1):
+            if not entry["is_player"]:
+                name = entry["name"]
+                opp_pts = tournament.get_season_points(pos)
+                player.opp_season_points[name] = (
+                    player.opp_season_points.get(name, 0) + opp_pts)
+
+    # World ranking points (Tour 4+). Q-school earns a small boost too.
+    rp = get_ranking_points(player.tour_level, position, tournament.is_major)
+    player.world_ranking_points += rp
+    player.world_rank = compute_world_rank(player.world_ranking_points)
+
+    # Sponsor target progress
+    if player.active_sponsor and not is_qschool:
+        t_type = player.active_sponsor["target"]["type"]
+        inc = False
+        if t_type == "win"    and position == 1:  inc = True
+        if t_type == "top5"   and position <= 5:  inc = True
+        if t_type == "top10"  and position <= 10: inc = True
+        if t_type == "played":                    inc = True
+        if inc:
+            player.sponsor_progress[t_type] = (
+                player.sponsor_progress.get(t_type, 0) + 1)
+
+    # Deduct staff salaries
+    for sid in player.hired_staff:
+        salary = STAFF_TYPES.get(sid, {}).get("salary", 0)
+        player.spend_money(salary)
+
+    player._check_achievements()
+    return {"position": position, "prize": prize, "points": pts}
 
 
 class CareerService:
