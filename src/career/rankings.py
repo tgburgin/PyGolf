@@ -29,8 +29,10 @@ def get_ranking_points(tour_level: int, position: int,
                        is_major: bool = False) -> float:
     """Ranking points for a given finishing position at a tour level."""
     pts_list = _PTS.get(tour_level, [])
+    if not pts_list:
+        return 0.0
     idx = min(position - 1, len(pts_list) - 1)
-    pts = pts_list[idx] if idx < len(pts_list) else 0.0
+    pts = pts_list[idx] if idx >= 0 else 0.0
     return pts * (MAJOR_MULTIPLIER if is_major else 1.0)
 
 
