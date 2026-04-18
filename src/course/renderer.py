@@ -60,9 +60,14 @@ def _make_procedural_tile(terrain, tile_size, seed):
     elif terrain == Terrain.ROUGH:
         _noisy_fill(surf, ts, rng, base=(44, 112, 42), spread=18)
         _grass_blades(surf, ts, rng, color=(62, 138, 58), count=5)
+        # Diagonal hatch makes rough distinguishable from fairway under
+        # protanopia/deuteranopia, where the greens collapse to similar grays.
+        _diagonal_hatch(surf, ts, color=(26, 72, 26), step=4)
     elif terrain == Terrain.DEEP_ROUGH:
         _noisy_fill(surf, ts, rng, base=(26, 78, 26), spread=12)
         _grass_blades(surf, ts, rng, color=(38, 100, 36), count=9)
+        # Denser hatch = deeper rough. Also distinguishable by pattern, not hue.
+        _diagonal_hatch(surf, ts, color=(10, 44, 10), step=2)
     elif terrain == Terrain.BUNKER:
         _bunker(surf, ts, rng)
     elif terrain == Terrain.WATER:
@@ -97,6 +102,16 @@ def _grass_blades(surf, ts, rng, color, count):
         h  = rng.randint(2, 4)
         lean = rng.randint(-1, 1)
         pygame.draw.line(surf, color, (bx, by), (bx + lean, by - h), 1)
+
+
+def _diagonal_hatch(surf, ts, color, step):
+    """Subtle diagonal stripe pattern — survives red-green colour-blindness.
+
+    step=4 gives a light hatch (rough), step=2 a dense hatch (deep rough).
+    """
+    for offset in range(-ts, ts, step):
+        pygame.draw.line(surf, color,
+                         (0, offset), (ts, offset + ts), 1)
 
 
 def _bunker(surf, ts, rng):
