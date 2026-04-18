@@ -178,7 +178,11 @@ class HUD:
             pygame.draw.rect(surface, bg,     rect, border_radius=5)
             pygame.draw.rect(surface, accent, rect, 2, border_radius=5)
             lbl = self.font_small.render(shape.value, True, C_WHITE)
-            surface.blit(lbl, lbl.get_rect(center=rect.center))
+            # Draw a small shape glyph above the label so the buttons are
+            # distinguishable without relying on colour alone.
+            self._draw_shape_glyph(surface, rect, shape, C_WHITE)
+            surface.blit(lbl, lbl.get_rect(
+                centerx=rect.centerx, bottom=rect.bottom - 4))
 
         self._divider(surface, 434)
 
@@ -231,6 +235,33 @@ class HUD:
         pygame.draw.line(surface, C_DIVIDER,
                          (self.panel_x + 10, y),
                          (self.panel_x + PANEL_WIDTH - 10, y))
+
+    def _draw_shape_glyph(self, surface, rect, shape, color):
+        """Tiny curve-arrow glyph centred near the top of a shape button.
+
+        Draw = curves left, Straight = arrow straight up, Fade = curves right.
+        Gives shape buttons a non-colour cue for colour-blind players.
+        """
+        from src.golf.shot import ShotShape
+        cx = rect.centerx
+        top = rect.y + 5
+        if shape == ShotShape.STRAIGHT:
+            pygame.draw.line(surface, color, (cx, top + 11), (cx, top), 2)
+            pygame.draw.polygon(surface, color,
+                                [(cx, top - 1), (cx - 3, top + 4), (cx + 3, top + 4)])
+            return
+        # DRAW curves left (points end up-left), FADE curves right.
+        sign = -1 if shape == ShotShape.DRAW else 1
+        pts = [(cx - sign * 6, top + 11),
+               (cx,            top + 7),
+               (cx + sign * 2, top + 1)]
+        pygame.draw.lines(surface, color, False, pts, 2)
+        tip = pts[-1]
+        pygame.draw.polygon(surface, color, [
+            tip,
+            (tip[0] - sign * 4, tip[1] + 3),
+            (tip[0] + sign * 1, tip[1] + 4),
+        ])
 
     def _draw_wind(self, surface, x, y, angle, strength):
         """Draw a compact wind indicator: compass arrow + cardinal + strength dots."""
