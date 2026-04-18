@@ -420,9 +420,22 @@ class GolfRoundState:
             self._auto_select_club()
         else:
             # Initial shot — reset controller and send ball bouncing back
-            self._show_message("In the trees — bounced out", 2.4)
+            self._show_message(self._trees_toast_text(), 2.4)
             self.shot_ctrl.on_ball_landed()
             self._do_tree_bounce()
+
+    def _trees_toast_text(self) -> str:
+        """Pick between 'Out of bounds' and 'In the trees' based on where the
+        ball stopped relative to the hole grid. The edge rows/cols are treated
+        as OOB — they are the tree wall that borders the course.
+        """
+        col = int(self.ball.x // self.tile_sz)
+        row = int(self.ball.y // self.tile_sz)
+        edge_margin = 2
+        near_edge = (
+            col < edge_margin or col >= self.hole.cols - edge_margin or
+            row < edge_margin or row >= self.hole.rows - edge_margin)
+        return "Out of bounds — dropped back" if near_edge else "In the trees — bounced out"
 
     def _do_tree_bounce(self):
         """Launch the ball back from the trees toward safe ground."""
@@ -496,7 +509,7 @@ class GolfRoundState:
 
         # Trees: mid-flight check should catch this first, but handle as fallback
         if terrain == Terrain.TREES:
-            self._show_message("In the trees — bounced out", 2.4)
+            self._show_message(self._trees_toast_text(), 2.4)
             self._do_tree_bounce()
             return
 
