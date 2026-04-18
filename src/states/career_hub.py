@@ -637,7 +637,8 @@ class CareerHubState:
             if owned:
                 sub, sc = "Owned", C_GREEN
             elif locked:
-                sub, sc = f"Tour {info['min_tour']} required", C_RED
+                tour_name = TOUR_DISPLAY_NAMES.get(info['min_tour'], "next tour")
+                sub, sc = f"Unlocks on {tour_name} (Tour {info['min_tour']})", C_RED
             else:
                 sub, sc = f"${info['cost']:,}", C_GOLD if can_buy else C_GRAY
             ss = self.font_small.render(sub, True, sc)
