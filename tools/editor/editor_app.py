@@ -591,8 +591,8 @@ class EditorApp:
         self._tilesets[stem]      = sheet
         self._tileset_paths[stem] = rel
         self._tileset.add_tileset(stem, sheet)
-        cols = sheet.get_width()  // 32
-        rows = sheet.get_height() // 32
+        cols = sheet.get_width()  // 16
+        rows = sheet.get_height() // 16
         self._show_msg(f"Loaded: {stem}  ({cols}×{rows} tiles)")
 
     def _cmd_save(self):

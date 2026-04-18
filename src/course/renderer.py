@@ -25,10 +25,10 @@ import pygame
 from src.golf.terrain import Terrain, TERRAIN_PROPS
 from src.utils.tileset import TilesetManager
 
-TILE_SIZE = 32
+TILE_SIZE = 16
 
 # Must match tools/editor/canvas.py SOURCE_TILE so visual-layer extraction aligns
-_SOURCE_TILE = 32
+_SOURCE_TILE = 16
 
 # Path to the tileset folder relative to the project root
 _ASSETS_DIR = os.path.join(
