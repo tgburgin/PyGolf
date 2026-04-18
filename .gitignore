@@ -1,0 +1,50 @@
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# ── Save files & generated data ───────────────────────────────────────────────
+saves/
+data/settings.json
+
+# ── Editor working files ──────────────────────────────────────────────────────
+tools/editor/.recent_files.json
+
+# ── Claude Code ───────────────────────────────────────────────────────────────
+.claude/
+
+# ── Private planning docs ─────────────────────────────────────────────────────
+Plans/
+manuals/
+
+# ── OS junk ───────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── IDE ───────────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# ── Unused tileset assets (editor extras, not needed to play) ─────────────────
+assets/tilemaps/0_Complete_Tileset_32x32.png
+assets/tilemaps/1_Terrains_32x32.png
+assets/tilemaps/2_Fences_32x32.png
+assets/tilemaps/3_Props_and_Buildings_32x32.png
+assets/tilemaps/4_Crops_32x32.png
+assets/tilemaps/5_Fruit_Trees_32x32.png
+assets/tilemaps/6_Trees_32x32.png
+assets/tilemaps/7_Pickup_Items_32x32.png
+assets/tilemaps/Doors.png
+assets/tilemaps/Fences.png
+assets/tilemaps/Grass.png
+assets/tilemaps/Tilled Dirt.png
+assets/tilemaps/Tilled_Dirt_v2.png
+assets/tilemaps/Tilled_Dirt_Wide.png
+assets/tilemaps/Tilled_Dirt_Wide_v2.png
+assets/tilemaps/Wooden House.png
+assets/tilemaps/Wooden_House_Roof_Tilset.png
+assets/tilemaps/Wooden_House_Walls_Tilset.png
