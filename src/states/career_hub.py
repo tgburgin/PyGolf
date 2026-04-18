@@ -446,11 +446,6 @@ class CareerHubState:
             True, (90, 160, 80))
         surface.blit(sub, (cx - sub.get_width() // 2, 44))
 
-        # Flash message
-        if self._msg_timer > 0:
-            ms = self.font_med.render(self._msg, True, C_GOLD)
-            surface.blit(ms, (cx - ms.get_width() // 2, 62))
-
         # ── Tab bar ───────────────────────────────────────────────────────────
         recommended_tab = self._recommended_tab()
         for i, label in enumerate(TAB_LABELS):
@@ -487,6 +482,22 @@ class CareerHubState:
             self._draw_tab1(surface)
         elif self._tab == 2:
             self._draw_tab2(surface)
+
+        # Flash message. Drawn LAST as a rounded banner floating just inside
+        # the top of the content area so it can't collide with the tab row
+        # (an earlier 62 px y collided with the tabs starting at y=68).
+        # Transient — only visible while _msg_timer > 0.
+        if self._msg_timer > 0:
+            ms = self.font_med.render(self._msg, True, C_GOLD)
+            pad_x, pad_h = 18, 26
+            banner = pygame.Rect(
+                cx - ms.get_width() // 2 - pad_x,
+                CONTENT_Y + 4,
+                ms.get_width() + pad_x * 2,
+                pad_h)
+            pygame.draw.rect(surface, (20, 28, 18), banner, border_radius=6)
+            pygame.draw.rect(surface, C_GOLD,       banner, 1, border_radius=6)
+            surface.blit(ms, ms.get_rect(center=banner.center))
         elif self._tab == 3:
             self._draw_tab3(surface)
 
