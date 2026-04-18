@@ -14,6 +14,14 @@ SAVE_DIR    = "saves"
 SAVE_FORMAT = 1
 
 
+class SaveVersionError(Exception):
+    """Raised when a save file's version is incompatible with this build."""
+
+
+class SaveCorruptError(Exception):
+    """Raised when a save file cannot be parsed as a valid save."""
+
+
 def _safe_filename(name: str) -> str:
     """Convert a player name to a safe filename (strip non-alphanumeric)."""
     safe = re.sub(r"[^\w\s-]", "", name).strip()
@@ -40,10 +48,28 @@ def save_game(player: Player, tournament=None) -> str:
 
 
 def load_game(path: str):
-    """Load a save file; returns (Player, tournament_dict_or_None)."""
-    with open(path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-    player = Player.from_dict(data["player"])
+    """Load a save file; returns (Player, tournament_dict_or_None).
+
+    Raises SaveCorruptError for unparseable files and SaveVersionError for
+    files written by an incompatible build.
+    """
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise SaveCorruptError(f"Could not read save: {exc}") from exc
+
+    version = data.get("save_format", 0)
+    if version != SAVE_FORMAT:
+        raise SaveVersionError(
+            f"Save format v{version} is not compatible with this build (v{SAVE_FORMAT})."
+        )
+
+    try:
+        player = Player.from_dict(data["player"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise SaveCorruptError(f"Save is missing required player data: {exc}") from exc
+
     return player, data.get("tournament")
 
 
@@ -60,20 +86,41 @@ def list_saves() -> list[str]:
 
 
 def get_save_preview(path: str) -> dict:
-    """Return a lightweight summary dict for displaying on the load screen."""
+    """Return a lightweight summary dict for displaying on the load screen.
+
+    If the file is unreadable or from an incompatible version, the returned
+    dict sets `corrupt=True` and `error` to a human-readable reason so the
+    UI can show a "(corrupt)" tag and disable Load for that slot.
+    """
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
-        p = data.get("player", {})
-        log = p.get("career_log", [])
+    except (OSError, json.JSONDecodeError) as exc:
         return {
-            "name":          p.get("name", "Unknown"),
-            "nationality":   p.get("nationality", ""),
-            "tour_level":    p.get("tour_level", 1),
-            "events_played": p.get("events_played", 0),
-            "money":         p.get("money", 0),
-            "last_round":    log[-1] if log else None,
-            "path":          path,
+            "name":    os.path.basename(path),
+            "path":    path,
+            "corrupt": True,
+            "error":   f"Unreadable: {exc}",
         }
-    except Exception:
-        return {"name": os.path.basename(path), "path": path}
+
+    version = data.get("save_format", 0)
+    if version != SAVE_FORMAT:
+        return {
+            "name":    os.path.basename(path),
+            "path":    path,
+            "corrupt": True,
+            "error":   f"Incompatible save version (v{version}, expected v{SAVE_FORMAT})",
+        }
+
+    p = data.get("player", {})
+    log = p.get("career_log", [])
+    return {
+        "name":          p.get("name", "Unknown"),
+        "nationality":   p.get("nationality", ""),
+        "tour_level":    p.get("tour_level", 1),
+        "events_played": p.get("events_played", 0),
+        "money":         p.get("money", 0),
+        "last_round":    log[-1] if log else None,
+        "path":          path,
+        "corrupt":       False,
+    }

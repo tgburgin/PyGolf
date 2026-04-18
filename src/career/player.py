@@ -82,6 +82,9 @@ class Player:
         # Q-School qualifying flag (set when Tour 4 season ends top-5)
         self.qschool_pending: bool = False
 
+        # One-time tutorial shown on the player's first round.
+        self.tutorial_seen: bool = False
+
     @property
     def clubs(self):
         return get_club_bag(self.club_set_name)
@@ -369,6 +372,7 @@ class Player:
             "world_rank":           self.world_rank,
             "majors_won":           list(self.majors_won),
             "qschool_pending":      self.qschool_pending,
+            "tutorial_seen":        self.tutorial_seen,
         }
 
     @classmethod
@@ -399,4 +403,5 @@ class Player:
         p.world_rank            = data.get("world_rank", 201)
         p.majors_won            = data.get("majors_won", [])
         p.qschool_pending       = data.get("qschool_pending", False)
+        p.tutorial_seen         = data.get("tutorial_seen", False)
         return p

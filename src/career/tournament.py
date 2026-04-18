@@ -70,7 +70,9 @@ class Tournament:
                  event_number: int = 1, total_events: int = 8,
                  major_id: str | None = None,
                  major_prize_fund: int | None = None,
-                 is_qschool: bool = False):
+                 is_qschool: bool = False,
+                 rng_seed: int | None = None):
+        import random as _random
         self.name         = name
         self.tour_level   = tour_level
         self.hole_pars    = list(hole_pars)
@@ -89,6 +91,15 @@ class Tournament:
         else:
             self.prize_fund = PRIZE_FUNDS.get(tour_level, 0)
 
+        # Deterministic seed for opponent simulation. If the caller doesn't
+        # supply one, derive a stable value from event metadata so repeated
+        # construction with the same args reproduces the same field.
+        if rng_seed is None:
+            rng_seed = hash((name, tour_level, event_number,
+                             bool(is_major), bool(is_qschool))) & 0xFFFFFFFF
+        self.rng_seed = int(rng_seed)
+        rng = _random.Random(self.rng_seed)
+
         # player_rounds[i] = list of 18 hole scores for round i
         self.player_rounds: list[list[int]] = []
 
@@ -96,7 +107,7 @@ class Tournament:
         self._opp_holes: dict[str, list[list[int]]] = {}
         for opp in self.opponents:
             self._opp_holes[opp.name] = [
-                opp.simulate_holes(self.hole_pars)
+                opp.simulate_holes(self.hole_pars, rng=rng)
                 for _ in range(self.total_rounds)
             ]
 
@@ -229,6 +240,7 @@ class Tournament:
             "event_number":  self.event_number,
             "total_events":  self.total_events,
             "prize_fund":    self.prize_fund,
+            "rng_seed":      self.rng_seed,
             "player_rounds": [list(r) for r in self.player_rounds],
             "opp_holes":     {k: [list(r) for r in v]
                               for k, v in self._opp_holes.items()},
@@ -253,6 +265,7 @@ class Tournament:
         t.event_number = data.get("event_number", 1)
         t.total_events = data.get("total_events", 8)
         t.prize_fund   = data.get("prize_fund", 0)
+        t.rng_seed     = int(data.get("rng_seed", 0))
         t.player_rounds = [list(r) for r in data.get("player_rounds", [])]
         t._opp_holes    = {k: [list(r) for r in v]
                            for k, v in data.get("opp_holes", {}).items()}

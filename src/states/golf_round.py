@@ -18,7 +18,7 @@ import random
 import pygame
 
 from src.golf.ball     import Ball, BallState
-from src.golf.shot     import ShotController, ShotState
+from src.golf.shot     import ShotController, ShotState, AIM_CLICK_RADIUS
 from src.golf.terrain  import Terrain, TERRAIN_PROPS
 from src.golf.club     import STARTER_BAG
 from src.course.renderer import CourseRenderer
@@ -124,6 +124,14 @@ class GolfRoundState:
 
         self._auto_select_club()
 
+        # Show a one-time tutorial modal on the player's very first round.
+        # Gated by Player.tutorial_seen so it only fires once per career.
+        self._show_tutorial = (
+            game.player is not None
+            and not getattr(game.player, "tutorial_seen", False)
+            and hole_index == 0
+        )
+
     # ── Properties ───────────────────────────────────────────────────────────
 
     @property
@@ -192,6 +200,12 @@ class GolfRoundState:
     # ── Event handling ────────────────────────────────────────────────────────
 
     def handle_event(self, event):
+        # Tutorial modal eats the first input on a new career's first round.
+        if self._show_tutorial:
+            if event.type in (pygame.MOUSEBUTTONDOWN, pygame.KEYDOWN):
+                self._dismiss_tutorial()
+            return
+
         if self.hole_complete:
             # After delay, any input moves to the next hole
             if (self.complete_timer > 1.2 and
@@ -376,6 +390,7 @@ class GolfRoundState:
             self._auto_select_club()
         else:
             # Initial shot — reset controller and send ball bouncing back
+            self._show_message("In the trees — bounced out", 2.4)
             self.shot_ctrl.on_ball_landed()
             self._do_tree_bounce()
 
@@ -451,6 +466,7 @@ class GolfRoundState:
 
         # Trees: mid-flight check should catch this first, but handle as fallback
         if terrain == Terrain.TREES:
+            self._show_message("In the trees — bounced out", 2.4)
             self._do_tree_bounce()
             return
 
@@ -460,6 +476,10 @@ class GolfRoundState:
             self._show_message("Water hazard! +1 penalty stroke", 2.8)
             drop_x, drop_y = self._water_drop_pos()
             self.ball.place(drop_x, drop_y)
+        elif terrain == Terrain.DEEP_ROUGH:
+            self._show_message("Deep rough — tough lie", 1.8)
+        elif terrain == Terrain.BUNKER:
+            self._show_message("In the bunker", 1.6)
 
         self._auto_select_club()
 
@@ -558,6 +578,22 @@ class GolfRoundState:
         self.renderer.draw_animated_elements(
             surface, int(self.cam_x), int(self.cam_y), self._flag_time)
 
+        # Faint click-zone ring around the ball while idle, to teach the click radius.
+        if (self.shot_ctrl.state == ShotState.IDLE
+                and self.ball.state == BallState.AT_REST
+                and not self.hole_complete):
+            bsx, bsy = self._ball_screen_pos()
+            if 0 <= bsx <= VIEWPORT_W and 0 <= bsy <= VIEWPORT_H:
+                ring = pygame.Surface((AIM_CLICK_RADIUS * 2 + 4,
+                                       AIM_CLICK_RADIUS * 2 + 4),
+                                      pygame.SRCALPHA)
+                pygame.draw.circle(
+                    ring, (255, 255, 255, 55),
+                    (AIM_CLICK_RADIUS + 2, AIM_CLICK_RADIUS + 2),
+                    AIM_CLICK_RADIUS, 1)
+                surface.blit(ring, (bsx - AIM_CLICK_RADIUS - 2,
+                                    bsy - AIM_CLICK_RADIUS - 2))
+
         aim = self.shot_ctrl.get_aim_line(self._ball_screen_pos())
         if aim:
             self._draw_aim_arrow(surface, *aim)
@@ -580,6 +616,55 @@ class GolfRoundState:
 
         if self.hole_complete:
             self._draw_complete_overlay(surface)
+
+        if self._show_tutorial:
+            self._draw_tutorial_overlay(surface)
+
+    def _dismiss_tutorial(self):
+        self._show_tutorial = False
+        if self.game.player is not None:
+            self.game.player.tutorial_seen = True
+
+    def _draw_tutorial_overlay(self, surface):
+        # Dim the course; leave the HUD visible so players can see what the
+        # text refers to.
+        dim = pygame.Surface((VIEWPORT_W, VIEWPORT_H), pygame.SRCALPHA)
+        dim.fill((0, 0, 0, 170))
+        surface.blit(dim, (0, 0))
+
+        pw, ph = 560, 340
+        px = (VIEWPORT_W - pw) // 2
+        py = (VIEWPORT_H - ph) // 2
+        panel = pygame.Rect(px, py, pw, ph)
+        pygame.draw.rect(surface, (14, 22, 14), panel, border_radius=12)
+        pygame.draw.rect(surface, (58, 98, 58), panel, 2, border_radius=12)
+
+        font_title = pygame.font.SysFont("arial", 30, bold=True)
+        font_line  = pygame.font.SysFont("arial", 20)
+        font_hint  = pygame.font.SysFont("arial", 16)
+
+        title = font_title.render("How to play", True, (168, 224, 88))
+        surface.blit(title, (panel.centerx - title.get_width() // 2, panel.y + 22))
+
+        lines = [
+            "1.  Left-click near the ball to start aiming.",
+            "2.  Drag away from the ball — distance = power, direction = aim.",
+            "3.  Release to take the shot.  Right-click cancels.",
+            "",
+            "Scroll wheel / arrow keys change clubs.",
+            "The putter is auto-selected on the green.",
+            "Wind, lie and club stats are shown in the HUD on the right.",
+        ]
+        ly = panel.y + 78
+        for text in lines:
+            if text:
+                s = font_line.render(text, True, (230, 230, 230))
+                surface.blit(s, (panel.x + 32, ly))
+            ly += 30
+
+        hint = font_hint.render("Click anywhere to continue.", True, (180, 200, 160))
+        surface.blit(hint, (panel.centerx - hint.get_width() // 2,
+                            panel.bottom - 34))
 
     def _draw_aim_arrow(self, surface, start, end, power):
         r = int(min(255, power * 2 * 255))

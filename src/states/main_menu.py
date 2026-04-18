@@ -18,7 +18,10 @@ import sys
 
 import pygame
 
-from src.utils.save_system import list_saves, get_save_preview, load_game
+from src.utils.save_system import (
+    list_saves, get_save_preview, load_game,
+    SaveVersionError, SaveCorruptError,
+)
 
 C_BG         = (  6,  12,   6)
 C_PANEL      = ( 14,  22,  14)
@@ -71,6 +74,10 @@ class MainMenuState:
         self._confirm_idx  = None   # index awaiting delete confirmation
         self._confirm_yes_hov = False
         self._confirm_no_hov  = False
+
+        # Transient error banner shown over the save panel after a bad load.
+        self._load_error: str | None = None
+        self._load_error_timer: float = 0.0
 
         cx = SCREEN_W // 2
         bw, bh = 300, 56
@@ -176,6 +183,11 @@ class MainMenuState:
                 return
             for i, r in enumerate(self._save_rects):
                 if r.collidepoint(p):
+                    if self._previews[i].get("corrupt"):
+                        self._load_error = self._previews[i].get(
+                            "error", "This save cannot be loaded.")
+                        self._load_error_timer = 4.0
+                        return
                     self._load_save(self._previews[i])
                     return
             # Click outside = cancel
@@ -238,8 +250,13 @@ class MainMenuState:
     def _load_save(self, preview: dict):
         try:
             player, tourn_data = load_game(preview["path"])
+        except (SaveVersionError, SaveCorruptError) as e:
+            self._load_error       = str(e)
+            self._load_error_timer = 4.0
+            return
         except Exception as e:
-            print(f"Failed to load save: {e}")
+            self._load_error       = f"Unexpected error loading save: {e}"
+            self._load_error_timer = 4.0
             return
         self.game.player = player
 
@@ -279,7 +296,10 @@ class MainMenuState:
     # ── Update ────────────────────────────────────────────────────────────────
 
     def update(self, dt):
-        pass
+        if self._load_error_timer > 0:
+            self._load_error_timer = max(0.0, self._load_error_timer - dt)
+            if self._load_error_timer == 0.0:
+                self._load_error = None
 
     # ── Draw ──────────────────────────────────────────────────────────────────
 
@@ -450,16 +470,24 @@ class MainMenuState:
             pygame.draw.rect(surface, C_BORDER, full, 1, border_radius=6)
 
             # Save info
-            name_s = self.font_medium.render(
-                preview.get("name", "?"), True, C_WHITE)
+            is_corrupt = bool(preview.get("corrupt"))
+            name_col   = (200, 130, 130) if is_corrupt else C_WHITE
+            name_text  = preview.get("name", "?")
+            if is_corrupt:
+                name_text = f"{name_text}  (corrupt)"
+            name_s = self.font_medium.render(name_text, True, name_col)
             surface.blit(name_s, (full.x + 12, full.y + 8))
 
-            tour     = TOUR_NAMES.get(preview.get("tour_level", 1), "Amateur")
-            info_str = (f"{preview.get('nationality', '')}   "
-                        f"{tour}   "
-                        f"{preview.get('events_played', 0)} events   "
-                        f"${preview.get('money', 0):,}")
-            info_s = self.font_small.render(info_str, True, C_GRAY)
+            if is_corrupt:
+                info_str = preview.get("error", "Cannot be loaded")
+                info_s = self.font_small.render(info_str, True, (180, 120, 120))
+            else:
+                tour     = TOUR_NAMES.get(preview.get("tour_level", 1), "Amateur")
+                info_str = (f"{preview.get('nationality', '')}   "
+                            f"{tour}   "
+                            f"{preview.get('events_played', 0)} events   "
+                            f"${preview.get('money', 0):,}")
+                info_s = self.font_small.render(info_str, True, C_GRAY)
             surface.blit(info_s, (full.x + 12, full.y + 36))
 
             # Delete button
@@ -476,6 +504,19 @@ class MainMenuState:
         pygame.draw.rect(surface, C_RED,        self._btn_cancel, 1, border_radius=6)
         cl = self.font_medium.render("Cancel", True, C_WHITE)
         surface.blit(cl, cl.get_rect(center=self._btn_cancel.center))
+
+        # Transient error banner (shown after a failed load)
+        if self._load_error:
+            banner_h = 34
+            banner = pygame.Rect(r.x + 14, self._btn_cancel.y - banner_h - 10,
+                                 r.width - 28, banner_h)
+            pygame.draw.rect(surface, (55, 20, 20), banner, border_radius=5)
+            pygame.draw.rect(surface, C_RED,        banner, 1, border_radius=5)
+            msg = self._load_error
+            if len(msg) > 80:
+                msg = msg[:77] + "…"
+            es = self.font_small.render(msg, True, (240, 200, 200))
+            surface.blit(es, es.get_rect(center=banner.center))
 
     # ── Confirmation overlay ──────────────────────────────────────────────────
 

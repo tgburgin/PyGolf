@@ -312,11 +312,13 @@ class CareerHubState:
                 return
             course = random.choice(courses)
             opps   = get_opponent_pool(5)   # tougher World Tour field
+            qs_seed = hash((p.name, p.season, "qschool")) & 0xFFFFFFFF
             t = Tournament(
                 "Q-School Qualifier", 4,
                 [course.get_hole(i).par for i in range(course.total_holes)],
                 opps, is_qschool=True,
-                event_number=1, total_events=1)
+                event_number=1, total_events=1,
+                rng_seed=qs_seed)
             p.qschool_pending = False
             self.game.current_tournament = t
             self.game.change_state(GolfRoundState(self.game, course, 0, []))
@@ -344,6 +346,9 @@ class CareerHubState:
 
         opps = get_opponent_pool(p.tour_level)
 
+        ev_seed = hash((p.name, p.season, p.tour_level,
+                        event_n, major_id or "")) & 0xFFFFFFFF
+
         if major_id:
             name = MAJORS[major_id]["name"]
             prize_fund = MAJORS[major_id]["prize_fund"]
@@ -351,7 +356,8 @@ class CareerHubState:
                 name, p.tour_level,
                 [course.get_hole(i).par for i in range(course.total_holes)],
                 opps, is_major=True, event_number=event_n, total_events=total,
-                major_id=major_id, major_prize_fund=prize_fund)
+                major_id=major_id, major_prize_fund=prize_fund,
+                rng_seed=ev_seed)
         else:
             _NAMES = {1: "Amateur", 2: "Challenger", 3: "Development",
                       4: "Continental", 5: "World", 6: "Grand"}
@@ -359,7 +365,8 @@ class CareerHubState:
             t = Tournament(
                 name, p.tour_level,
                 [course.get_hole(i).par for i in range(course.total_holes)],
-                opps, is_major=False, event_number=event_n, total_events=total)
+                opps, is_major=False, event_number=event_n, total_events=total,
+                rng_seed=ev_seed)
 
         self.game.current_tournament = t
         self.game.change_state(GolfRoundState(self.game, course, 0, []))

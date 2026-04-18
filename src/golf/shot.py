@@ -29,10 +29,10 @@ ShotResult = namedtuple('ShotResult', ['target_x', 'target_y', 'aim_x', 'aim_y',
 MAX_DRAG_PIXELS = 130
 
 # Click must be within this many screen pixels of the ball to start aiming.
-AIM_CLICK_RADIUS = 35
+AIM_CLICK_RADIUS = 50
 
 # How much lateral curve is applied as a fraction of total shot distance.
-SHAPE_CURVE_FRACTION = 0.10
+SHAPE_CURVE_FRACTION = 0.15
 
 # Scatter multipliers (fraction of shot distance).
 # Lateral: perpendicular miss — bell-curve via gauss.
