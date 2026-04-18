@@ -136,9 +136,12 @@ no new systems required.
 #### B1-1: Reduce hole capture radius
 **File:** `src/golf/ball.py`
 ```
-HOLE_CAPTURE_RADIUS: 14 → 3
+HOLE_CAPTURE_RADIUS: 14 → 7   (implemented)
+HOLE_ROLL_RADIUS:    12        (unchanged)
 ```
-This is the single highest-impact change. Putts will now need to be aimed accurately.
+Reduced from 14 to 7 px (~2.2 yards). This is the implemented value — it strikes a balance
+between requiring accurate putting and still allowing clean hole capture on well-struck putts.
+The original target of 3 px was found to be too punishing in play.
 
 ---
 
@@ -210,16 +213,18 @@ restore accuracy toward the current values and beyond for pro-level play.
 ---
 
 #### B1-5: Harden terrain accuracy penalties
-**File:** `src/terrain.py`
+**File:** `src/golf/terrain.py`
 
-| Terrain   | Current acc_mod | Target acc_mod |
-|-----------|-----------------|----------------|
-| Rough     | 0.80            | 0.70           |
-| Deep Rough| 0.60            | 0.50           |
-| Bunker    | 0.70            | 0.55           |
+| Terrain   | Original acc_mod | Implemented acc_mod |
+|-----------|------------------|---------------------|
+| Rough     | 0.80             | 0.70                |
+| Deep Rough| 0.60             | 0.50                |
+| Bunker    | 0.70             | 0.78                |
 
-Distance modifiers are reasonable and do not need major changes. The accuracy hit from
-off-fairway lies needs to bite harder so the fairway genuinely matters.
+Rough and Deep Rough penalties were tightened as planned. Bunker was left at 0.78 (slightly
+loosened from the original 0.70) — bunker play in the game requires a precision flop shot and
+the 0.78 value gives a meaningful but recoverable penalty without making sand shots feel
+impossible, especially at amateur level. The planned 0.55 was found to be too severe.
 
 ---
 

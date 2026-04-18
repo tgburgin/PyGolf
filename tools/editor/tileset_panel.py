@@ -4,12 +4,17 @@ tileset_panel.py — tileset palette for the course editor.
 Draws the left-side panel showing tiles from the currently active tileset
 PNG.  The user clicks a tile to select it as the active paint brush.
 
+Single-tile mode  : left-click  → selected_tile = (id, sc, sr)
+Multi-tile stamp  : left-drag   → selected_stamp = list[list[(id,sc,sr)]]
+  (stamp is a 2-D list; [0][0] is top-left.  Only available on the Detail layer.)
+
 Public interface
 ────────────────
-  draw(surface, tilesets, active_brush)
-  handle_event(event, tilesets) → bool
+  draw(surface, tilesets, active_brush, active_layer, transparent_tilesets)
+  handle_event(event, tilesets, active_layer, transparent_tilesets) → bool
   add_tileset(id, sheet)
   selected_tile   — None or (id, src_col, src_row), read and cleared by EditorApp
+  selected_stamp  — None or list[list[(id,sc,sr)]], read and cleared by EditorApp
 """
 
 import pygame
@@ -31,10 +36,16 @@ class TilesetPanel:
         self._tile_order: list[str]  = []
         self._scroll_y   = 0
         self._hovered_tile = None          # (sc, sr) under cursor
-        self.selected_tile = None          # (id, sc, sr) — set on click, read externally
+        self.selected_tile  = None         # (id, sc, sr) — set on click, read externally
+        self.selected_stamp = None         # list[list[(id,sc,sr)]] — set on drag, read externally
 
         self._btn_prev = pygame.Rect(0, 0, 0, 0)
         self._btn_next = pygame.Rect(0, 0, 0, 0)
+
+        # Drag-select for multi-tile stamp
+        self._drag_start: tuple | None = None   # (sc, sr) where drag began
+        self._drag_end:   tuple | None = None   # (sc, sr) current drag end
+        self._dragging    = False
 
         # Scaled tile cache: (id, sc, sr) → Surface at DISPLAY_TILE
         self._tile_cache: dict = {}
@@ -55,16 +66,31 @@ class TilesetPanel:
         self._current_id = None
         self._tile_order.clear()
         self._tile_cache.clear()
-        self._scroll_y   = 0
-        self.selected_tile = None
+        self._scroll_y      = 0
+        self.selected_tile  = None
+        self.selected_stamp = None
+        self._drag_start    = None
+        self._drag_end      = None
+        self._dragging      = False
 
     # ── Event handling ────────────────────────────────────────────────────────
 
-    def handle_event(self, event, tilesets) -> bool:
+    def handle_event(self, event, tilesets,
+                     active_layer: str = "ground",
+                     transparent_tilesets: set | None = None) -> bool:
         """Process pygame event. Returns True if consumed."""
+        if active_layer == "logic":
+            return False   # Logic layer has no tile palette
+
+        visible = self._visible_ids(active_layer, transparent_tilesets)
+        if not visible:
+            return False
+
         if event.type == pygame.MOUSEMOTION:
             if self.rect.collidepoint(event.pos):
                 self._hovered_tile = self._pos_to_tile(event.pos, tilesets)
+                if self._dragging and self._hovered_tile is not None:
+                    self._drag_end = self._hovered_tile
             else:
                 self._hovered_tile = None
             return False
@@ -80,22 +106,50 @@ class TilesetPanel:
                 return True
             if event.button == 1:
                 if self._btn_prev.collidepoint(event.pos):
-                    self._navigate(-1)
+                    self._navigate(-1, visible)
                     return True
                 if self._btn_next.collidepoint(event.pos):
-                    self._navigate(+1)
+                    self._navigate(+1, visible)
                     return True
                 tile = self._pos_to_tile(event.pos, tilesets)
                 if tile is not None:
-                    sc, sr = tile
-                    self.selected_tile = (self._current_id, sc, sr)
+                    self._dragging   = True
+                    self._drag_start = tile
+                    self._drag_end   = tile
                     return True
+
+        if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+            if self._dragging:
+                self._dragging = False
+                if self._drag_start is not None and self._drag_end is not None:
+                    sc0, sr0 = self._drag_start
+                    sc1, sr1 = self._drag_end
+                    c_min, c_max = min(sc0, sc1), max(sc0, sc1)
+                    r_min, r_max = min(sr0, sr1), max(sr0, sr1)
+                    if c_min == c_max and r_min == r_max:
+                        # Single tile — use selected_tile path
+                        self.selected_tile  = (self._current_id, c_min, r_min)
+                        self.selected_stamp = None
+                    else:
+                        # Multi-tile stamp
+                        stamp = [
+                            [(self._current_id, sc, sr)
+                             for sc in range(c_min, c_max + 1)]
+                            for sr in range(r_min, r_max + 1)
+                        ]
+                        self.selected_stamp = stamp
+                        self.selected_tile  = None
+                    self._drag_start = None
+                    self._drag_end   = None
+                return True
 
         return False
 
     # ── Drawing ───────────────────────────────────────────────────────────────
 
-    def draw(self, surface, tilesets, active_brush=None):
+    def draw(self, surface, tilesets, active_brush=None,
+             active_layer: str = "ground",
+             transparent_tilesets: set | None = None):
         """Render the panel. active_brush is (id, sc, sr) or None for highlight."""
         old_clip = surface.get_clip()
         surface.set_clip(self.rect)
@@ -105,20 +159,64 @@ class TilesetPanel:
                          (self.rect.right - 1, self.rect.top),
                          (self.rect.right - 1, self.rect.bottom))
 
-        self._draw_header(surface)
+        if active_layer == "logic":
+            self._draw_logic_message(surface)
+            surface.set_clip(old_clip)
+            return
+
+        visible = self._visible_ids(active_layer, transparent_tilesets)
+
+        # If current tileset is not in the visible list, auto-switch
+        if self._current_id not in visible and visible:
+            self._current_id = visible[0]
+            self._scroll_y   = 0
+
+        self._draw_header(surface, visible)
 
         if self._current_id and self._current_id in tilesets:
-            self._draw_tiles(surface, tilesets, active_brush)
+            self._draw_tiles(surface, tilesets, active_brush, active_layer)
         else:
-            msg = self._font_sm.render("No tileset loaded.", True, (110, 110, 110))
-            mx  = self.rect.x + (self.rect.width - msg.get_width()) // 2
-            surface.blit(msg, (mx, self.rect.y + HEADER_H + 20))
+            if active_layer == "detail" and not visible:
+                lines = ["No transparent", "tilesets loaded.", "Import an RGBA PNG."]
+            else:
+                lines = ["No tileset loaded."]
+            for i, line in enumerate(lines):
+                msg = self._font_sm.render(line, True, (110, 110, 110))
+                mx  = self.rect.x + (self.rect.width - msg.get_width()) // 2
+                surface.blit(msg, (mx, self.rect.y + HEADER_H + 20 + i * 16))
 
         surface.set_clip(old_clip)
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 
-    def _draw_header(self, surface):
+    def _visible_ids(self, active_layer: str,
+                     transparent_tilesets: set | None) -> list[str]:
+        """Return the subset of _tile_order valid for the given layer."""
+        transparent = transparent_tilesets or set()
+        if active_layer == "detail":
+            return [tid for tid in self._tile_order if tid in transparent]
+        else:  # ground — all tilesets are available
+            return list(self._tile_order)
+
+    def _draw_logic_message(self, surface):
+        """Show a placeholder message when the logic layer is active."""
+        pygame.draw.rect(surface, (42, 42, 42), self.rect)
+        pygame.draw.line(surface, (70, 70, 70),
+                         (self.rect.right - 1, self.rect.top),
+                         (self.rect.right - 1, self.rect.bottom))
+        lines  = ["Logic Layer", "", "Use the Attribute", "panel below to", "paint terrain codes."]
+        colors = [(220, 160, 60), (0, 0, 0), (150, 150, 150), (150, 150, 150), (150, 150, 150)]
+        y = self.rect.y + HEADER_H + 20
+        for line, color in zip(lines, colors):
+            if not line:
+                y += 8
+                continue
+            msg = self._font_sm.render(line, True, color)
+            mx  = self.rect.x + (self.rect.width - msg.get_width()) // 2
+            surface.blit(msg, (mx, y))
+            y += 16
+
+    def _draw_header(self, surface, visible: list[str] | None = None):
         hx, hy, hw = self.rect.x, self.rect.y, self.rect.width
         pygame.draw.rect(surface, (52, 52, 52), (hx, hy, hw, HEADER_H))
         pygame.draw.line(surface, (70, 70, 70),
@@ -128,14 +226,22 @@ class TilesetPanel:
         label = self._font.render(name, True, (200, 200, 200))
         surface.blit(label, (hx + MARGIN_X, hy + 8))
 
-        # Hover coordinates
-        if self._hovered_tile is not None and self._current_id:
+        # Hover / stamp-size coordinates
+        if self._dragging and self._drag_start and self._drag_end:
+            sc0, sr0 = self._drag_start
+            sc1, sr1 = self._drag_end
+            w = abs(sc1 - sc0) + 1
+            h = abs(sr1 - sr0) + 1
+            coord = self._font_sm.render(f"Stamp: {w}x{h}", True, (80, 220, 140))
+            surface.blit(coord, (hx + MARGIN_X, hy + 24))
+        elif self._hovered_tile is not None and self._current_id:
             sc, sr = self._hovered_tile
             coord = self._font_sm.render(
                 f"{self._current_id}:{sc}:{sr}", True, (160, 200, 160))
             surface.blit(coord, (hx + MARGIN_X, hy + 24))
 
-        if len(self._tile_order) > 1:
+        ids = visible if visible is not None else self._tile_order
+        if len(ids) > 1:
             bw, bh = 22, 18
             by = hy + 30
             self._btn_prev = pygame.Rect(hx + MARGIN_X, by, bw, bh)
@@ -146,15 +252,15 @@ class TilesetPanel:
                 t = self._font_sm.render(txt, True, (200, 200, 200))
                 surface.blit(t, (btn.x + (bw - t.get_width()) // 2,
                                  btn.y + (bh - t.get_height()) // 2))
-            idx = (f"{self._tile_order.index(self._current_id) + 1}"
-                   f"/{len(self._tile_order)}")
+            pos = ids.index(self._current_id) + 1 if self._current_id in ids else 0
+            idx = f"{pos}/{len(ids)}"
             s = self._font_sm.render(idx, True, (150, 150, 150))
             surface.blit(s, (hx + (hw - s.get_width()) // 2, by + 2))
         else:
             self._btn_prev = pygame.Rect(0, 0, 0, 0)
             self._btn_next = pygame.Rect(0, 0, 0, 0)
 
-    def _draw_tiles(self, surface, tilesets, active_brush):
+    def _draw_tiles(self, surface, tilesets, active_brush, active_layer="ground"):
         sheet      = tilesets[self._current_id]
         sheet_cols = sheet.get_width()  // SOURCE_TILE
         sheet_rows = sheet.get_height() // SOURCE_TILE
@@ -171,6 +277,15 @@ class TilesetPanel:
         tile_clip = pygame.Rect(self.rect.x, grid_top,
                                 self.rect.width, self.rect.height - HEADER_H)
         surface.set_clip(tile_clip)
+
+        # Determine drag selection bounds for highlight
+        drag_set: set[tuple[int, int]] = set()
+        if self._dragging and self._drag_start and self._drag_end:
+            sc0, sr0 = self._drag_start
+            sc1, sr1 = self._drag_end
+            for r in range(min(sr0, sr1), max(sr0, sr1) + 1):
+                for c in range(min(sc0, sc1), max(sc0, sc1) + 1):
+                    drag_set.add((c, r))
 
         for sr in range(sheet_rows):
             for sc in range(sheet_cols):
@@ -189,12 +304,18 @@ class TilesetPanel:
                 surface.blit(tile_surf, (tx, ty))
 
                 # Hover highlight
-                if self._hovered_tile == (sc, sr):
+                if self._hovered_tile == (sc, sr) and not self._dragging:
                     hl = pygame.Surface((DISPLAY_TILE, DISPLAY_TILE), pygame.SRCALPHA)
                     hl.fill((255, 255, 255, 60))
                     surface.blit(hl, (tx, ty))
 
-                # Selection outline
+                # Drag-select highlight
+                if (sc, sr) in drag_set:
+                    hl = pygame.Surface((DISPLAY_TILE, DISPLAY_TILE), pygame.SRCALPHA)
+                    hl.fill((80, 220, 140, 80))
+                    surface.blit(hl, (tx, ty))
+
+                # Single-tile selection outline
                 if (active_brush is not None and
                         active_brush == (self._current_id, sc, sr)):
                     pygame.draw.rect(surface, (80, 160, 255),
@@ -211,7 +332,10 @@ class TilesetPanel:
                 return None
             raw    = sheet.subsurface(src)
             scaled = pygame.transform.scale(raw, (DISPLAY_TILE, DISPLAY_TILE))
-            self._tile_cache[key] = scaled.convert()
+            # Preserve alpha for RGBA sheets (detail tilesets)
+            self._tile_cache[key] = (scaled.convert_alpha()
+                                     if sheet.get_flags() & pygame.SRCALPHA
+                                     else scaled.convert())
         return self._tile_cache[key]
 
     def _pos_to_tile(self, pos, tilesets):
@@ -246,9 +370,10 @@ class TilesetPanel:
             return None
         return (sc, sr)
 
-    def _navigate(self, direction: int):
-        if not self._tile_order or self._current_id not in self._tile_order:
+    def _navigate(self, direction: int, visible: list[str] | None = None):
+        ids = visible if visible else self._tile_order
+        if not ids or self._current_id not in ids:
             return
-        i = (self._tile_order.index(self._current_id) + direction) % len(self._tile_order)
-        self._current_id = self._tile_order[i]
+        i = (ids.index(self._current_id) + direction) % len(ids)
+        self._current_id = ids[i]
         self._scroll_y   = 0

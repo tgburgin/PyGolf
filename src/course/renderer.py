@@ -1,14 +1,21 @@
 """
 CourseRenderer — draws the tile-based course map.
 
+Three-layer render pipeline
+────────────────────────────
+  1. Ground layer  — opaque base tiles (fairway, rough, bunker, water, etc.)
+  2. Detail layer  — RGBA transparent overlay tiles (trees, rocks, fences, etc.)
+  3. Animated elements — flag wave drawn each frame on top
+
 Terrain tiles are sourced from the PNG tilesets in assets/tilemaps/:
   Fairway / Green / Tee / Rough / Deep Rough → Hills.png  (grass tiles)
   Bunker                                      → Tilled_Dirt.png (sand tiles)
   Water                                       → Water.png
   Trees                                       → procedural (dark canopies)
+  Detail objects                              → RGBA detail tilesets
 
-If the asset files are missing the renderer falls back to procedurally-
-generated textures so the game still runs without assets.
+If asset files are missing the renderer falls back to procedurally-
+generated textures so the game always runs without assets.
 
 Public interface
 ────────────────
@@ -30,16 +37,15 @@ TILE_SIZE = 16
 # Must match tools/editor/canvas.py SOURCE_TILE so visual-layer extraction aligns
 _SOURCE_TILE = 16
 
-# Path to the tileset folder relative to the project root
 _ASSETS_DIR = os.path.join(
-    os.path.dirname(__file__),   # src/course/
-    "..", "..",                  # up to project root
+    os.path.dirname(__file__),
+    "..", "..",
     "assets", "tilemaps",
 )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Procedural fallback textures  (used when tileset is unavailable)
+# Procedural fallback textures
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _make_procedural_tile(terrain, tile_size, seed):
@@ -139,32 +145,21 @@ def _trees(surf, ts, rng):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _make_tile(terrain, tile_size, seed, tileset: TilesetManager):
-    """
-    Return a pygame.Surface for the given terrain.
-
-    Uses a tile from the PNG tileset when available; falls back to the
-    procedural generator if the tileset hasn't been loaded.
-    """
-    # Trees always use the procedural renderer (no suitable top-down sprite)
     if terrain == Terrain.TREES:
         return _make_procedural_tile(terrain, tile_size, seed)
 
     tile = tileset.get(terrain) if tileset.is_ready() else None
 
     if tile is not None:
-        # The tile is already 20×20.  Add subtle per-tile noise by brightening
-        # or darkening randomly so large flat areas don't look like one texture.
-        rng     = random.Random(seed)
-        noise   = rng.randint(-6, 6)
-        result  = tile.copy()
+        rng   = random.Random(seed)
+        noise = rng.randint(-6, 6)
+        result = tile.copy()
         if noise != 0:
-            v     = abs(noise)
-            flag  = pygame.BLEND_RGB_ADD if noise > 0 else pygame.BLEND_RGB_SUB
+            v    = abs(noise)
+            flag = pygame.BLEND_RGB_ADD if noise > 0 else pygame.BLEND_RGB_SUB
             result.fill((v, v, v), special_flags=flag)
-
         return result
 
-    # Fallback
     return _make_procedural_tile(terrain, tile_size, seed)
 
 
@@ -173,18 +168,14 @@ def _make_tile(terrain, tile_size, seed, tileset: TilesetManager):
 # ─────────────────────────────────────────────────────────────────────────────
 
 class CourseRenderer:
-    """Pre-renders and draws the course tile map."""
+    """Pre-renders and draws the course tile map using a three-layer pipeline."""
 
     def __init__(self, hole):
         self.hole      = hole
         self.tile_size = TILE_SIZE
 
-        # Load tileset (singleton — shared across all CourseRenderer instances)
         self._tileset = TilesetManager.instance()
         if not self._tileset.is_ready():
-            assets_dir = os.path.normpath(
-                os.path.join(os.path.dirname(__file__), _ASSETS_DIR))
-            # Try project-root-relative path as well
             project_root = os.path.normpath(
                 os.path.join(os.path.dirname(__file__), "..", ".."))
             assets_dir = os.path.join(project_root, "assets", "tilemaps")
@@ -197,32 +188,61 @@ class CourseRenderer:
     # ── Build ─────────────────────────────────────────────────────────────────
 
     def _build_course_surface(self):
-        """Render every tile to an off-screen surface (done once at startup)."""
+        """
+        Bake ground + detail layers into a single cached surface.
+
+        Ground tiles are drawn opaque; detail tiles are blitted on top
+        with full alpha compositing so transparent pixels show the ground.
+        """
         width  = self.hole.cols * self.tile_size
         height = self.hole.rows * self.tile_size
-        self._course_surface = pygame.Surface((width, height))
+        ts     = self.tile_size
 
-        ts = self.tile_size
-        has_visual = (self.hole.visual_grid is not None
-                      and self.hole.tilesets is not None)
+        # ── Ground layer (opaque) ────────────────────────────────────────────
+        ground_surf = pygame.Surface((width, height))
+        has_ground  = (self.hole.ground_layer is not None
+                       and self.hole.tilesets is not None)
+
         for row in range(self.hole.rows):
             for col in range(self.hole.cols):
                 terrain = self.hole.get_terrain_at(col, row)
                 seed    = col * 10007 + row * 37 + hash(terrain.value)
 
                 tile = None
-                if (has_visual
-                        and row < len(self.hole.visual_grid)
-                        and col < len(self.hole.visual_grid[row])):
-                    cell = self.hole.visual_grid[row][col]
+                if (has_ground
+                        and row < len(self.hole.ground_layer)
+                        and col < len(self.hole.ground_layer[row])):
+                    cell = self.hole.ground_layer[row][col]
                     if cell is not None:
-                        tile = self._get_visual_tile(cell, ts)
+                        tile = self._get_visual_tile(cell, ts, alpha=False)
 
                 if tile is None:
                     tile = _make_tile(terrain, ts, seed, self._tileset)
 
-                self._course_surface.blit(tile, (col * ts, row * ts))
+                ground_surf.blit(tile, (col * ts, row * ts))
 
+        # ── Detail layer (RGBA transparent overlay) ──────────────────────────
+        has_detail = (self.hole.detail_layer is not None
+                      and self.hole.tilesets is not None)
+
+        if has_detail:
+            detail_surf = pygame.Surface((width, height), pygame.SRCALPHA)
+            detail_surf.fill((0, 0, 0, 0))
+
+            for row in range(self.hole.rows):
+                for col in range(self.hole.cols):
+                    if row >= len(self.hole.detail_layer):
+                        continue
+                    cell = self.hole.detail_layer[row][col]
+                    if cell is None:
+                        continue
+                    tile = self._get_visual_tile(cell, ts, alpha=True)
+                    if tile is not None:
+                        detail_surf.blit(tile, (col * ts, row * ts))
+
+            ground_surf.blit(detail_surf, (0, 0))
+
+        self._course_surface = ground_surf
         self._draw_border_shadows()
         self._draw_pin()
         self._draw_tee_marker()
@@ -257,7 +277,6 @@ class CourseRenderer:
                                          (tx + ts - 1, ty), (tx + ts - 1, ty + ts - 1))
 
     def _draw_pin(self):
-        """Hole cup and flag stick baked into the static surface (flag is animated separately)."""
         col, row = self.hole.pin_pos
         cx = col * self.tile_size + self.tile_size // 2
         cy = row * self.tile_size + self.tile_size // 2
@@ -268,7 +287,6 @@ class CourseRenderer:
                          (cx, cy - 2), (cx, cy - 22), 2)
 
     def _draw_tee_marker(self):
-        """Small white tee-marker dots either side of the tee position."""
         col, row = self.hole.tee_pos
         cx = col * self.tile_size + self.tile_size // 2
         cy = row * self.tile_size + self.tile_size // 2
@@ -276,13 +294,13 @@ class CourseRenderer:
             pygame.draw.circle(self._course_surface, (255, 255, 255), (cx + ox, cy), 3)
             pygame.draw.circle(self._course_surface, (140, 180, 140), (cx + ox, cy), 3, 1)
 
-    def _get_visual_tile(self, cell, display_px) -> pygame.Surface | None:
+    def _get_visual_tile(self, cell, display_px, alpha=False) -> pygame.Surface | None:
         """Extract and cache a tile from the hole's loaded tileset surfaces."""
         tid, sc, sr = cell
         sheet = self.hole.tilesets.get(tid)
         if sheet is None:
             return None
-        key = (tid, sc, sr, display_px)
+        key = (tid, sc, sr, display_px, alpha)
         if key not in self._visual_cache:
             src = pygame.Rect(sc * _SOURCE_TILE, sr * _SOURCE_TILE,
                               _SOURCE_TILE, _SOURCE_TILE)
@@ -292,9 +310,11 @@ class CourseRenderer:
                 raw = sheet.subsurface(src)
                 if display_px != _SOURCE_TILE:
                     scaled = pygame.transform.scale(raw, (display_px, display_px))
-                    self._visual_cache[key] = scaled.convert()
                 else:
-                    self._visual_cache[key] = raw.copy().convert()
+                    scaled = raw.copy()
+                self._visual_cache[key] = (
+                    scaled.convert_alpha() if alpha else scaled.convert()
+                )
         return self._visual_cache[key]
 
     # ── Draw ──────────────────────────────────────────────────────────────────
@@ -309,7 +329,6 @@ class CourseRenderer:
                      area=source_area)
 
     def draw_minimap(self, surface, dest_rect, ball_world_pos):
-        """Scaled-down overview of the entire hole with pin and ball markers."""
         ts   = self.tile_size
         cols = self.hole.cols
         rows = self.hole.rows
@@ -331,7 +350,6 @@ class CourseRenderer:
                 my = int(row * ts * scale)
                 pygame.draw.rect(mini, color, (mx, my, mtw, mth))
 
-        # Pin marker
         pc, pr  = self.hole.pin_pos
         pin_mx  = int((pc * ts + ts // 2) * scale)
         pin_my  = int((pr * ts + ts // 2) * scale)
@@ -339,7 +357,6 @@ class CourseRenderer:
         pygame.draw.circle(mini, (255, 255, 255), (pin_mx, pin_my), 3)
         pygame.draw.circle(mini, (210,  35,  35), (pin_mx, pin_my), 2)
 
-        # Ball marker
         bx, by  = ball_world_pos
         ball_mx = int(bx * scale)
         ball_my = int(by * scale)
@@ -359,14 +376,11 @@ class CourseRenderer:
         """Draw time-varying elements (animated flag) over the static course."""
         col, row = self.hole.pin_pos
         ts = self.tile_size
-        # World-space pin centre
         wcx = col * ts + ts // 2
         wcy = row * ts + ts // 2
-        # Screen-space
         scx = int(wcx - camera_x)
         scy = int(wcy - camera_y)
 
-        # Animate the flag polygon using a sine wave
         wave     = math.sin(elapsed * 3.8) * 3.5
         wave2    = math.sin(elapsed * 3.8 + 1.2) * 2.0
         stick_top = (scx, scy - 22)

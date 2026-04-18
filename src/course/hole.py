@@ -8,8 +8,14 @@ Each character maps to a Terrain via CHAR_TO_TERRAIN:
     X = Tee box       F = Fairway      R = Rough        D = Deep rough
     B = Bunker        W = Water        T = Trees/OOB    G = Green
 
+Three layers
+------------
+  ground_layer  : list[list[(id,col,row)|None]]  — opaque base tiles
+  detail_layer  : list[list[(id,col,row)|None]]  — transparent overlay sprites
+  logic_layer   : list[str]                       — terrain codes (same as grid)
+
 Scale: each tile represents 10 yards.
-       tile_size pixels per tile is set in the renderer (default 32 px).
+       tile_size pixels per tile is set in the renderer (default 16 px).
 
 Positions are stored as (col, row) tile indices.
 """
@@ -21,17 +27,25 @@ class Hole:
     """A single golf hole."""
 
     def __init__(self, number, par, yardage, tee_pos, pin_pos, grid,
-                 visual_grid=None, tilesets=None):
-        self.number      = number      # Hole number (1-18)
-        self.par         = par         # Par for this hole
-        self.yardage     = yardage     # Tee-to-pin distance in yards
-        self.tee_pos     = tee_pos     # (col, row) tile of the tee marker
-        self.pin_pos     = pin_pos     # (col, row) tile of the pin/hole
-        self.grid        = grid        # list[str], row-major terrain grid
-        self.rows        = len(grid)
-        self.cols        = len(grid[0]) if grid else 0
-        self.visual_grid = visual_grid # list[list[(id,col,row)|None]] or None
-        self.tilesets    = tilesets    # dict {id: pygame.Surface} or None
+                 visual_grid=None, tilesets=None,
+                 ground_layer=None, detail_layer=None):
+        self.number   = number
+        self.par      = par
+        self.yardage  = yardage
+        self.tee_pos  = tee_pos
+        self.pin_pos  = pin_pos
+        self.grid     = grid          # list[str] — terrain codes (logic layer)
+        self.rows     = len(grid)
+        self.cols     = len(grid[0]) if grid else 0
+        self.tilesets = tilesets      # dict {id: pygame.Surface} or None
+
+        # Three-layer model.
+        # ground_layer / visual_grid are synonyms — prefer ground_layer going forward.
+        self.ground_layer = ground_layer if ground_layer is not None else visual_grid
+        self.detail_layer = detail_layer   # RGBA overlay tiles; None = no detail
+
+        # Legacy alias kept for code that still reads hole.visual_grid
+        self.visual_grid = self.ground_layer
 
     def get_terrain_at(self, col, row):
         """
@@ -64,8 +78,7 @@ def make_hole_1():
     Two bunkers flank the fairway at the approach.
     Two more bunkers sit mid-fairway to punish offline drives.
 
-    Grid: 48 cols × 36 rows, each tile = 10 yards = 32 screen pixels.
-    Total world size: 1536 × 1152 px  (larger than the 960×720 viewport — camera scrolls).
+    Grid: 48 cols × 36 rows, each tile = 10 yards = 16 screen pixels.
 
     Tile positions
     ──────────────
@@ -138,7 +151,7 @@ def make_hole_1():
         number   = 1,
         par      = 4,
         yardage  = 310,
-        tee_pos  = (23, 33),   # centre of tee box (col, row)
-        pin_pos  = (23,  3),   # centre of green   (col, row)
+        tee_pos  = (23, 33),
+        pin_pos  = (23,  3),
         grid     = [''.join(row) for row in grid],
     )

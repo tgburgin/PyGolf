@@ -1,13 +1,20 @@
 """
-dialogs.py — file open/save wrappers and course JSON helpers (Phase E3).
+dialogs.py — file open/save wrappers and course JSON helpers.
 
-Multi-hole model
-────────────────
-  _course["holes"][i]["visual"]  is stored in memory as Python tuples
-  (None or (id, col, row)).  On disk it is encoded to "id:col:row" strings.
-  flush_hole_to_course / load_hole_from_course translate between the two
-  in-memory representations (canvas ↔ course dict).  save_course encodes
-  to strings before writing JSON; load_course decodes strings back to tuples.
+Three-layer model (v3 format)
+──────────────────────────────
+  ground    : list[list[None|(id,col,row)]]  — opaque base tiles
+  detail    : list[list[None|(id,col,row)]]  — transparent overlay tiles
+  logic     : list[list[str]]               — terrain code chars
+
+On disk the tile grids are encoded as:
+  None  → null (JSON) for ground, "" for detail
+  tuple → "id:col:row" string
+
+v2 files (visual + attributes) are auto-migrated on load:
+  visual      → ground
+  empty grid  → detail
+  attributes  → logic
 """
 
 import copy
@@ -65,8 +72,8 @@ def ask_save_file(initial_dir="data/courses"):
 
 # ── Course data helpers ───────────────────────────────────────────────────────
 
-def make_empty_hole(cols: int = 80, rows: int = 60, number: int = 1) -> dict:
-    """Return a blank hole dict with Python-format visual grid (None values)."""
+def make_empty_hole(cols: int = 48, rows: int = 36, number: int = 1) -> dict:
+    """Return a blank hole dict in v3 format."""
     return {
         "number":       number,
         "par":          4,
@@ -76,15 +83,16 @@ def make_empty_hole(cols: int = 80, rows: int = 60, number: int = 1) -> dict:
         "pin":          [cols // 2, 3],
         "grid_cols":    cols,
         "grid_rows":    rows,
-        "visual":       [[None] * cols for _ in range(rows)],
-        "attributes":   [["R"]  * cols for _ in range(rows)],
+        "ground":       [[None] * cols for _ in range(rows)],
+        "detail":       [[None] * cols for _ in range(rows)],
+        "logic":        [["R"]  * cols for _ in range(rows)],
     }
 
 
-def make_empty_course(rows: int = 60, cols: int = 80) -> dict:
-    """Return a fresh course dict with one blank hole."""
+def make_empty_course(rows: int = 36, cols: int = 48) -> dict:
+    """Return a fresh course dict in v3 format with one blank hole."""
     return {
-        "version": 2,
+        "version": 3,
         "course": {
             "name": "Untitled",
             "tour": "development",
@@ -96,27 +104,28 @@ def make_empty_course(rows: int = 60, cols: int = 80) -> dict:
 
 
 def flush_hole_to_course(course_data: dict, hole_index: int,
-                          visual_grid, attribute_grid,
+                          ground_grid, detail_grid, logic_grid,
                           tee_pos, pin_pos,
                           par: int, yds: int, si: int) -> None:
     """
     Write canvas state into course_data["holes"][hole_index].
 
-    visual_grid    : list[list[(id,col,row)|None]]  (Python tuples)
-    attribute_grid : list[list[str]]
+    ground_grid : list[list[(id,col,row)|None]]
+    detail_grid : list[list[(id,col,row)|None]]
+    logic_grid  : list[list[str]]
     tee_pos / pin_pos : (col, row) | None
     """
     holes = course_data["holes"]
-    rows  = len(visual_grid)
-    cols  = len(visual_grid[0]) if visual_grid else 0
+    rows  = len(ground_grid)
+    cols  = len(ground_grid[0]) if ground_grid else 0
 
-    # Ensure the slot exists
     while len(holes) <= hole_index:
         holes.append(make_empty_hole(cols, rows, len(holes) + 1))
 
     h = holes[hole_index]
-    h["visual"]       = visual_grid
-    h["attributes"]   = attribute_grid
+    h["ground"]       = ground_grid
+    h["detail"]       = detail_grid
+    h["logic"]        = logic_grid
     h["tee"]          = list(tee_pos) if tee_pos else h.get("tee", [cols // 2, rows - 3])
     h["pin"]          = list(pin_pos) if pin_pos else h.get("pin", [cols // 2, 3])
     h["par"]          = par
@@ -124,19 +133,24 @@ def flush_hole_to_course(course_data: dict, hole_index: int,
     h["stroke_index"] = si
     h["grid_rows"]    = rows
     h["grid_cols"]    = cols
+    # Remove any legacy v2 keys
+    h.pop("visual",      None)
+    h.pop("attributes",  None)
 
 
 def load_hole_from_course(course_data: dict, hole_index: int):
     """
     Extract hole canvas state from course_data.
 
-    Returns (visual_grid, attr_grid, tee_pos, pin_pos, cols, rows).
-    visual_grid cells are Python tuples (None or (id, col, row)).
+    Returns (ground_grid, detail_grid, logic_grid, tee_pos, pin_pos, cols, rows).
+    Grid cells are Python tuples (None or (id, col, row)).
+    Auto-migrates v2 holes (visual/attributes) to v3 (ground/detail/logic).
     """
     holes = course_data.get("holes", [])
     if hole_index >= len(holes):
         rows, cols = 36, 48
         return (
+            [[None] * cols for _ in range(rows)],
             [[None] * cols for _ in range(rows)],
             [["R"]  * cols for _ in range(rows)],
             None, None, cols, rows,
@@ -146,39 +160,72 @@ def load_hole_from_course(course_data: dict, hole_index: int):
     rows = h.get("grid_rows", 36)
     cols = h.get("grid_cols", 48)
 
-    visual = h.get("visual") or [[None] * cols for _ in range(rows)]
-    attrs  = h.get("attributes") or [["R"] * cols for _ in range(rows)]
+    # Detect v2 vs v3
+    if "ground" in h or "logic" in h:
+        ground = h.get("ground") or [[None] * cols for _ in range(rows)]
+        detail = h.get("detail") or [[None] * cols for _ in range(rows)]
+        logic  = h.get("logic")  or [["R"]  * cols for _ in range(rows)]
+    else:
+        # v2 migration
+        ground = h.get("visual")     or [[None] * cols for _ in range(rows)]
+        detail = [[None] * cols for _ in range(rows)]
+        logic  = h.get("attributes") or [["R"]  * cols for _ in range(rows)]
 
     tee = tuple(h["tee"]) if h.get("tee") else None
     pin = tuple(h["pin"]) if h.get("pin") else None
 
-    return visual, attrs, tee, pin, cols, rows
+    return ground, detail, logic, tee, pin, cols, rows
 
 
-def save_course(course_data: dict, path: str, tileset_registry: dict) -> None:
+def save_course(course_data: dict, path: str,
+                tileset_registry: dict,
+                transparent_tilesets: set | None = None) -> None:
     """
-    Encode all holes to string format and write JSON to disk.
+    Encode all holes to string format and write JSON v3 to disk.
 
-    tileset_registry : dict {id: filepath} of all loaded tilesets
-    All holes in course_data must have already been flushed via
-    flush_hole_to_course before calling this.
+    tileset_registry     : dict {id: filepath}
+    transparent_tilesets : set of tileset IDs that are RGBA detail sheets
     """
+    transparent_tilesets = transparent_tilesets or set()
     data = copy.deepcopy(course_data)
+    data["version"] = 3
 
-    # Encode visual grids to "id:col:row" string format
-    for hole in data["holes"]:
-        hole["visual"] = _visual_to_json(hole.get("visual") or [])
-
-    # Rebuild tilesets from tiles actually referenced across all holes
     used_ids: set[str] = set()
-    for hole in data["holes"]:
-        for row in hole.get("visual", []):
-            for cell in row:
-                if isinstance(cell, str):
-                    used_ids.add(cell.split(":")[0])
 
+    for hole in data["holes"]:
+        # Encode ground layer
+        if "ground" in hole:
+            hole["ground"] = _tile_grid_to_json(hole["ground"], empty_val=None)
+        elif "visual" in hole:
+            # Migrate legacy key
+            hole["ground"] = _tile_grid_to_json(hole.pop("visual"), empty_val=None)
+
+        # Encode detail layer
+        if "detail" in hole:
+            hole["detail"] = _tile_grid_to_json(hole["detail"], empty_val="")
+        else:
+            rows = hole.get("grid_rows", 36)
+            cols = hole.get("grid_cols", 48)
+            hole["detail"] = [[""] * cols for _ in range(rows)]
+
+        # Encode logic layer
+        if "logic" not in hole and "attributes" in hole:
+            hole["logic"] = hole.pop("attributes")
+
+        # Collect referenced tileset IDs
+        for grid_key in ("ground", "detail"):
+            for row in hole.get(grid_key, []):
+                for cell in row:
+                    if isinstance(cell, str) and ":" in cell:
+                        used_ids.add(cell.split(":")[0])
+
+    # Rebuild tilesets list from actually-used IDs
     data["tilesets"] = [
-        {"id": tid, "path": tileset_registry[tid]}
+        {
+            "id":          tid,
+            "path":        tileset_registry[tid],
+            "transparent": tid in transparent_tilesets,
+        }
         for tid in sorted(used_ids)
         if tid in tileset_registry
     ]
@@ -193,52 +240,100 @@ def save_course(course_data: dict, path: str, tileset_registry: dict) -> None:
 
 def load_course(path: str):
     """
-    Load a course JSON file.
+    Load a course JSON file (v2 or v3).
 
-    Returns (course_data, tileset_specs) where course_data["holes"][i]["visual"]
-    is already decoded to Python tuples (None or (id, col, row)).
+    Returns (course_data, tileset_specs).
+    All hole tile grids are decoded to Python tuples (None or (id, col, row)).
+    v2 files are migrated in-memory but not written back.
     """
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
 
-    # Decode all hole visual grids from strings to tuples
     for hole in data.get("holes", []):
-        raw = hole.get("visual")
-        if raw:
-            hole["visual"] = _json_to_visual(raw)
+        rows = hole.get("grid_rows", 36)
+        cols = hole.get("grid_cols", 48)
+
+        if "ground" in hole or "logic" in hole:
+            # v3 format
+            if "ground" in hole:
+                hole["ground"] = _json_to_tile_grid(hole["ground"])
+            else:
+                hole["ground"] = [[None] * cols for _ in range(rows)]
+
+            if "detail" in hole:
+                hole["detail"] = _json_to_tile_grid(hole["detail"])
+            else:
+                hole["detail"] = [[None] * cols for _ in range(rows)]
         else:
-            rows = hole.get("grid_rows", 36)
-            cols = hole.get("grid_cols", 48)
-            hole["visual"] = [[None] * cols for _ in range(rows)]
+            # v2 migration
+            raw_visual = hole.get("visual")
+            hole["ground"] = _json_to_tile_grid(raw_visual) if raw_visual else \
+                             [[None] * cols for _ in range(rows)]
+            hole["detail"] = [[None] * cols for _ in range(rows)]
+            if "attributes" in hole:
+                hole["logic"] = hole.pop("attributes")
 
     return data, data.get("tilesets", [])
 
 
 def validate_course(course_data: dict,
-                    tileset_registry: dict | None = None) -> list[tuple[str, str]]:
+                    tileset_registry: dict | None = None,
+                    transparent_ids: set | None = None) -> list[tuple[str, str]]:
     """
-    Validate course_data.  Returns a list of (level, message) tuples where
-    level is 'error' or 'warning'.  Errors block saving; warnings do not.
+    Validate course_data. Returns list of (level, message) tuples.
+    Errors block saving; warnings do not.
     """
     issues: list[tuple[str, str]] = []
     holes = course_data.get("holes", [])
 
-    # Tileset check — flag any visual tiles referencing an unloaded sheet
     if tileset_registry is not None:
         missing: set[str] = set()
         for hole in holes:
-            for row in hole.get("visual", []):
-                for cell in row:
-                    if cell is not None and isinstance(cell, (tuple, list)):
-                        tid = cell[0]
-                        if tid not in tileset_registry:
-                            missing.add(tid)
-                    elif isinstance(cell, str):
-                        tid = cell.split(":")[0]
-                        if tid not in tileset_registry:
-                            missing.add(tid)
+            for grid_key in ("ground", "detail", "visual"):
+                for row in hole.get(grid_key, []):
+                    for cell in row:
+                        if cell is not None and isinstance(cell, (tuple, list)):
+                            tid = cell[0]
+                            if tid not in tileset_registry:
+                                missing.add(tid)
+                        elif isinstance(cell, str) and ":" in cell:
+                            tid = cell.split(":")[0]
+                            if tid not in tileset_registry:
+                                missing.add(tid)
         for tid in sorted(missing):
             issues.append(("error", f"Tileset '{tid}' is used but not loaded."))
+
+    # Warn if detail layer references non-transparent tilesets, or is out of bounds
+    for i, hole in enumerate(holes):
+        n        = hole.get("number", i + 1)
+        h_rows   = hole.get("grid_rows", 36)
+        h_cols   = hole.get("grid_cols", 48)
+        bad_opaque   = False
+        bad_boundary = False
+
+        detail = hole.get("detail", [])
+        for r, row in enumerate(detail):
+            for c, cell in enumerate(row):
+                tid = None
+                if isinstance(cell, (tuple, list)) and len(cell) >= 1:
+                    tid = cell[0]
+                elif isinstance(cell, str) and ":" in cell:
+                    tid = cell.split(":")[0]
+                if tid is None:
+                    continue
+                # Boundary check
+                if r >= h_rows or c >= h_cols:
+                    bad_boundary = True
+                # Non-transparent tileset check
+                if transparent_ids is not None and tid not in transparent_ids:
+                    bad_opaque = True
+
+        if bad_opaque:
+            issues.append(("warning",
+                           f"Hole {n}: detail layer references a non-transparent tileset."))
+        if bad_boundary:
+            issues.append(("warning",
+                           f"Hole {n}: detail tile placed outside the course boundary."))
 
     if not holes:
         issues.append(("error", "Course has no holes."))
@@ -247,31 +342,28 @@ def validate_course(course_data: dict,
     for i, hole in enumerate(holes):
         n = hole.get("number", i + 1)
 
-        # Tee / pin presence
         if not hole.get("tee"):
             issues.append(("error", f"Hole {n}: tee position not set."))
         if not hole.get("pin"):
             issues.append(("error", f"Hole {n}: pin position not set."))
 
-        # Tee should sit on a TEE attribute tile
         tee = hole.get("tee")
         if tee:
             tc, tr = tee
-            attrs = hole.get("attributes", [])
-            if (attrs and 0 <= tr < len(attrs)
-                    and 0 <= tc < len(attrs[tr])
-                    and attrs[tr][tc] != "X"):
+            logic = hole.get("logic") or hole.get("attributes", [])
+            if (logic and 0 <= tr < len(logic)
+                    and 0 <= tc < len(logic[tr])
+                    and logic[tr][tc] != "X"):
                 issues.append(("warning",
                                 f"Hole {n}: tee marker is not on a Tee Box tile."))
 
-        # Pin should sit on a GREEN tile
         pin = hole.get("pin")
         if pin:
             pc, pr = pin
-            attrs = hole.get("attributes", [])
-            if (attrs and 0 <= pr < len(attrs)
-                    and 0 <= pc < len(attrs[pr])
-                    and attrs[pr][pc] != "G"):
+            logic = hole.get("logic") or hole.get("attributes", [])
+            if (logic and 0 <= pr < len(logic)
+                    and 0 <= pc < len(logic[pr])
+                    and logic[pr][pc] != "G"):
                 issues.append(("warning",
                                 f"Hole {n}: pin marker is not on a Green tile."))
 
@@ -288,7 +380,6 @@ def validate_course(course_data: dict,
             issues.append(("warning",
                             f"Hole {n}: stroke index out of range ({si})."))
 
-    # Duplicate stroke indices across the full round
     if len(holes) == 18:
         si_vals = [h.get("stroke_index") for h in holes]
         if len(set(si_vals)) != 18:
@@ -300,36 +391,36 @@ def validate_course(course_data: dict,
 
 # ── Internal encoding helpers ─────────────────────────────────────────────────
 
-def _visual_to_json(visual_grid) -> list:
-    """Convert visual_grid (None | (id,col,row) tuples) to JSON-serialisable form."""
+def _tile_grid_to_json(grid, empty_val=None) -> list:
+    """Convert tile grid (None|(id,col,row) tuples) to JSON-serialisable form."""
     result = []
-    for row in visual_grid:
+    for row in grid:
         json_row = []
         for cell in row:
             if cell is None:
-                json_row.append(None)
+                json_row.append(empty_val)
             elif isinstance(cell, (tuple, list)):
                 tid, sc, sr = cell
                 json_row.append(f"{tid}:{sc}:{sr}")
             else:
-                json_row.append(cell)   # already a string (shouldn't happen)
+                json_row.append(cell)
         result.append(json_row)
     return result
 
 
-def _json_to_visual(json_grid) -> list:
-    """Decode JSON grid (None | "id:col:row" strings) back to tuples."""
+def _json_to_tile_grid(json_grid) -> list:
+    """Decode JSON grid (null/""/  "id:col:row" strings) back to tuples."""
     result = []
     for row in json_grid:
-        vis_row = []
+        decoded = []
         for cell in row:
-            if cell is None:
-                vis_row.append(None)
-            elif isinstance(cell, str):
+            if cell is None or cell == "":
+                decoded.append(None)
+            elif isinstance(cell, str) and ":" in cell:
                 parts = cell.split(":")
-                vis_row.append((parts[0], int(parts[1]), int(parts[2]))
+                decoded.append((parts[0], int(parts[1]), int(parts[2]))
                                if len(parts) == 3 else None)
             else:
-                vis_row.append(None)
-        result.append(vis_row)
+                decoded.append(None)
+        result.append(decoded)
     return result

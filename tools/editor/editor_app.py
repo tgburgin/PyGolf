@@ -69,11 +69,12 @@ STATUS_H       = 24
 LEFT_PANEL_W   = 240
 RIGHT_PANEL_W  = 220
 CANVAS_W       = SCREEN_W - LEFT_PANEL_W - RIGHT_PANEL_W   # 980
-CANVAS_H       = SCREEN_H - TOOLBAR_H - STATUS_H            # 828
+LAYER_BAR_H    = 28                                          # three-layer switcher bar
+CANVAS_H       = SCREEN_H - TOOLBAR_H - LAYER_BAR_H - STATUS_H   # 800
 TILESET_H      = 480
-ATTR_H         = CANVAS_H - TILESET_H                       # 348
+ATTR_H         = CANVAS_H - TILESET_H                       # 320
 
-CANVAS_RECT      = pygame.Rect(LEFT_PANEL_W,  TOOLBAR_H, CANVAS_W, CANVAS_H)
+CANVAS_RECT      = pygame.Rect(LEFT_PANEL_W,  TOOLBAR_H + LAYER_BAR_H, CANVAS_W, CANVAS_H)
 TILESET_RECT     = pygame.Rect(0,             TOOLBAR_H, LEFT_PANEL_W, TILESET_H)
 ATTR_RECT        = pygame.Rect(0,             TOOLBAR_H + TILESET_H, LEFT_PANEL_W, ATTR_H)
 RIGHT_PANEL_RECT = pygame.Rect(SCREEN_W - RIGHT_PANEL_W, TOOLBAR_H, RIGHT_PANEL_W, CANVAS_H)
@@ -104,6 +105,7 @@ class EditorApp:
         # Tilesets: id → pygame.Surface
         self._tilesets: dict[str, pygame.Surface] = {}
         self._tileset_paths: dict[str, str]       = {}
+        self._transparent_tilesets: set[str]      = set()   # RGBA detail sheets
 
         # Course state
         self._course        = make_empty_course()
@@ -184,7 +186,11 @@ class EditorApp:
                         continue
 
                 if event.type == pygame_gui.UI_BUTTON_PRESSED:
-                    self._on_button(event.ui_element)
+                    action = self._hole_panel.handle_event(event)
+                    if action:
+                        self._on_hole_action(action)
+                    else:
+                        self._on_button(event.ui_element)
                     continue
 
                 # Hole panel (right)
@@ -200,9 +206,24 @@ class EditorApp:
                     continue
 
                 # Tileset panel (top-left)
-                if self._tileset.handle_event(event, self._tilesets):
-                    if self._tileset.selected_tile is not None:
-                        self._canvas.active_brush   = self._tileset.selected_tile
+                if self._tileset.handle_event(event, self._tilesets,
+                                              active_layer=self._canvas.active_layer,
+                                              transparent_tilesets=self._transparent_tilesets):
+                    if self._tileset.selected_stamp is not None:
+                        # Multi-tile stamp (detail layer drag-select)
+                        self._canvas.active_detail_stamp = self._tileset.selected_stamp
+                        self._canvas.active_detail_brush = None
+                        self._tileset.selected_stamp = None
+                        rows = len(self._canvas.active_detail_stamp)
+                        cols = len(self._canvas.active_detail_stamp[0]) if rows else 0
+                        self._show_msg(f"Stamp: {cols}x{rows} tiles")
+                    elif self._tileset.selected_tile is not None:
+                        tile = self._tileset.selected_tile
+                        if self._canvas.active_layer == "detail":
+                            self._canvas.active_detail_brush = tile
+                            self._canvas.active_detail_stamp = None  # clear stamp
+                        else:
+                            self._canvas.active_brush = tile
                         self._tileset.selected_tile = None
                     continue
 
@@ -234,11 +255,16 @@ class EditorApp:
 
         self._tint_view_buttons()
         self._tint_ruler_button()
+        self._draw_layer_bar()
 
         self._canvas.draw(self._screen, self._tilesets)
 
         self._tileset.draw(self._screen, self._tilesets,
-                           active_brush=self._canvas.active_brush)
+                           active_brush=(self._canvas.active_detail_brush
+                                         if self._canvas.active_layer == "detail"
+                                         else self._canvas.active_brush),
+                           active_layer=self._canvas.active_layer,
+                           transparent_tilesets=self._transparent_tilesets)
         self._attr.draw(self._screen)
 
         # Right panel
@@ -247,6 +273,67 @@ class EditorApp:
         self._draw_status()
         self._ui.draw_ui(self._screen)
         pygame.display.flip()
+
+    def _draw_layer_bar(self):
+        """Draw the three-layer switcher bar between toolbar and canvas."""
+        bar_y = TOOLBAR_H
+        bar_x = LEFT_PANEL_W
+        bar_w = CANVAS_W
+        bar_h = LAYER_BAR_H
+
+        pygame.draw.rect(self._screen, (38, 38, 48),
+                         pygame.Rect(bar_x, bar_y, bar_w, bar_h))
+        pygame.draw.line(self._screen, (70, 70, 80),
+                         (bar_x, bar_y + bar_h - 1),
+                         (bar_x + bar_w, bar_y + bar_h - 1))
+
+        if not hasattr(self, "_layer_font"):
+            self._layer_font = pygame.font.SysFont("monospace", 12, bold=True)
+
+        layers = [
+            ("ground", "1 Ground", self._canvas.show_ground,  (80, 160, 80)),
+            ("detail", "2 Detail", self._canvas.show_detail,  (80, 160, 220)),
+            ("logic",  "3 Logic",  self._canvas.show_logic_overlay, (220, 160, 60)),
+        ]
+
+        bw, bh = 90, 20
+        gap    = 8
+        tx     = bar_x + gap
+        ty     = bar_y + (bar_h - bh) // 2
+
+        for lid, label, visible, color in layers:
+            active = (self._canvas.active_layer == lid)
+            bg     = color if active else (55, 55, 65)
+            border = color
+            alpha_surf = pygame.Surface((bw, bh))
+            alpha_surf.fill(bg)
+            if active:
+                alpha_surf.set_alpha(210)
+            else:
+                alpha_surf.set_alpha(140)
+            self._screen.blit(alpha_surf, (tx, ty))
+            pygame.draw.rect(self._screen, border, (tx, ty, bw, bh), 1)
+
+            # Eye indicator for visibility
+            eye_c = color if visible else (80, 80, 80)
+            lbl_surf = self._layer_font.render(label, True, eye_c)
+            self._screen.blit(lbl_surf,
+                              (tx + (bw - lbl_surf.get_width()) // 2,
+                               ty + (bh - lbl_surf.get_height()) // 2))
+
+            # Dimmed strikethrough if hidden
+            if not visible:
+                pygame.draw.line(self._screen, (180, 60, 60),
+                                 (tx + 4, ty + bh // 2),
+                                 (tx + bw - 4, ty + bh // 2), 1)
+
+            tx += bw + gap
+
+        # Hint text
+        hint = self._layer_font.render(
+            "1/2/3 = active  Shift+1/2/3 = toggle visibility  E = erase  F = fill",
+            True, (90, 90, 100))
+        self._screen.blit(hint, (tx + gap * 2, ty + (bh - hint.get_height()) // 2))
 
     def _tint_ruler_button(self):
         r = self._btn_ruler.rect
@@ -292,6 +379,7 @@ class EditorApp:
             tid, sc, sr = self._canvas.active_brush
             brush_txt = f"Tile:{tid}({sc},{sr})"
 
+        layer_txt = f"Layer:{self._canvas.active_layer.upper()}"
         attr_txt  = f"Attr:{self._canvas.active_attribute.name}"
         zoom_txt  = f"{self._canvas.zoom:.1f}×"
         mode_txt  = self._canvas.view_mode.upper()
@@ -308,7 +396,7 @@ class EditorApp:
             yds = self._canvas.ruler_yards
             ruler_txt = f"RULER: {round(yds)} yds" if yds and yds > 0.5 else "RULER (drag to measure)"
 
-        parts = [p for p in [tile_txt, brush_txt, attr_txt, zoom_txt,
+        parts = [p for p in [tile_txt, brush_txt, layer_txt, attr_txt, zoom_txt,
                               mode_txt, hole_txt, set_mode_txt, ruler_txt,
                               file_name + dirty_sfx] if p]
         status = "  |  ".join(parts)
@@ -500,8 +588,9 @@ class EditorApp:
         flush_hole_to_course(
             self._course,
             self._current_hole,
-            self._canvas.visual_grid,
-            self._canvas.attribute_grid,
+            self._canvas.ground_grid,
+            self._canvas.detail_grid,
+            self._canvas.logic_grid,
             self._canvas.tee_pos,
             self._canvas.pin_pos,
             par, yds, si,
@@ -511,9 +600,9 @@ class EditorApp:
 
     def _load_hole(self, index: int):
         """Load hole data from _course into canvas and hole panel."""
-        visual, attrs, tee, pin, cols, rows = load_hole_from_course(
+        ground, detail, logic, tee, pin, cols, rows = load_hole_from_course(
             self._course, index)
-        self._canvas.load_grids(visual, attrs)
+        self._canvas.load_grids(ground, logic, detail)
         self._canvas.tee_pos = tee
         self._canvas.pin_pos = pin
         self._canvas.clear_set_mode()
@@ -569,6 +658,7 @@ class EditorApp:
         self._tileset.clear()
         self._tilesets.clear()
         self._tileset_paths.clear()
+        self._transparent_tilesets.clear()
         self._load_hole(0)
         self._hole_panel.populate_course(
             self._course["course"], 1, 0)
@@ -580,7 +670,10 @@ class EditorApp:
             return
         stem = os.path.splitext(os.path.basename(path))[0]
         try:
-            sheet = pygame.image.load(path).convert_alpha()
+            raw   = pygame.image.load(path)
+            # Use alpha mask to detect real RGBA sheets — flags are unreliable after load
+            is_transparent = raw.get_masks()[3] != 0
+            sheet = raw.convert_alpha() if is_transparent else raw.convert()
         except pygame.error as exc:
             self._show_msg(f"Load failed: {exc}")
             return
@@ -588,19 +681,24 @@ class EditorApp:
             rel = os.path.relpath(path).replace("\\", "/")
         except ValueError:
             rel = path.replace("\\", "/")
+
         self._tilesets[stem]      = sheet
         self._tileset_paths[stem] = rel
+        if is_transparent:
+            self._transparent_tilesets.add(stem)
         self._tileset.add_tileset(stem, sheet)
         cols = sheet.get_width()  // 16
         rows = sheet.get_height() // 16
-        self._show_msg(f"Loaded: {stem}  ({cols}×{rows} tiles)")
+        tag  = " [transparent/detail]" if is_transparent else ""
+        self._show_msg(f"Loaded: {stem}  ({cols}×{rows} tiles){tag}")
 
     def _cmd_save(self):
         # Flush current hole state into course dict
         self._flush_current_hole()
 
         # Validate
-        issues = validate_course(self._course, self._tileset_paths)
+        issues = validate_course(self._course, self._tileset_paths,
+                                  self._transparent_tilesets)
         errors   = [m for lvl, m in issues if lvl == "error"]
         warnings = [m for lvl, m in issues if lvl == "warning"]
 
@@ -626,7 +724,8 @@ class EditorApp:
             self._filepath = path
 
         try:
-            save_course(self._course, self._filepath, self._tileset_paths)
+            save_course(self._course, self._filepath, self._tileset_paths,
+                        self._transparent_tilesets)
             self._dirty = False
             self._add_to_recent(self._filepath)
             if not warnings:
@@ -638,7 +737,8 @@ class EditorApp:
         """Export: validate, always prompt for path, write to data/courses/<tour>/."""
         self._flush_current_hole()
 
-        issues  = validate_course(self._course, self._tileset_paths)
+        issues  = validate_course(self._course, self._tileset_paths,
+                                   self._transparent_tilesets)
         errors  = [m for lvl, m in issues if lvl == "error"]
         warnings = [m for lvl, m in issues if lvl == "warning"]
 
@@ -658,7 +758,8 @@ class EditorApp:
             return
 
         try:
-            save_course(self._course, path, self._tileset_paths)
+            save_course(self._course, path, self._tileset_paths,
+                        self._transparent_tilesets)
             self._add_to_recent(path)
         except Exception as exc:
             self._show_msg(f"Export error: {exc}")
@@ -689,15 +790,20 @@ class EditorApp:
         self._tilesets.clear()
         self._tileset_paths.clear()
         self._tileset.clear()
+        self._transparent_tilesets.clear()
         for spec in tileset_specs:
             tid, tpath = spec["id"], spec["path"]
             if not os.path.exists(tpath):
                 self._show_msg(f"Missing tileset: {tpath}")
                 continue
             try:
-                sheet = pygame.image.load(tpath).convert_alpha()
+                is_t  = bool(spec.get("transparent"))
+                raw   = pygame.image.load(tpath)
+                sheet = raw.convert_alpha() if is_t else raw.convert()
                 self._tilesets[tid]      = sheet
                 self._tileset_paths[tid] = tpath.replace("\\", "/")
+                if is_t:
+                    self._transparent_tilesets.add(tid)
                 self._tileset.add_tileset(tid, sheet)
             except pygame.error as exc:
                 self._show_msg(f"Tileset error: {exc}")
@@ -751,6 +857,7 @@ class EditorApp:
                 self._run_recent_overlay()
                 return True
         else:
+            shift = event.mod & pygame.KMOD_SHIFT
             if event.key == pygame.K_g:
                 self._canvas.show_grid = not self._canvas.show_grid
                 return True
@@ -770,6 +877,31 @@ class EditorApp:
                 return True
             if event.key == pygame.K_m:
                 self._toggle_ruler()
+                return True
+            # Layer switching: 1/2/3 = active layer; Shift+1/2/3 = toggle visibility
+            if event.key == pygame.K_1:
+                if shift:
+                    self._canvas.show_ground = not self._canvas.show_ground
+                    self._show_msg(f"Ground layer {'shown' if self._canvas.show_ground else 'hidden'}.")
+                else:
+                    self._canvas.active_layer = "ground"
+                    self._show_msg("Active layer: Ground")
+                return True
+            if event.key == pygame.K_2:
+                if shift:
+                    self._canvas.show_detail = not self._canvas.show_detail
+                    self._show_msg(f"Detail layer {'shown' if self._canvas.show_detail else 'hidden'}.")
+                else:
+                    self._canvas.active_layer = "detail"
+                    self._show_msg("Active layer: Detail  (select a transparent tileset)")
+                return True
+            if event.key == pygame.K_3:
+                if shift:
+                    self._canvas.show_logic_overlay = not self._canvas.show_logic_overlay
+                    self._show_msg(f"Logic overlay {'shown' if self._canvas.show_logic_overlay else 'hidden'}.")
+                else:
+                    self._canvas.active_layer = "logic"
+                    self._show_msg("Active layer: Logic  (left-click paints terrain type)")
                 return True
         return False
 
@@ -904,14 +1036,19 @@ class EditorApp:
         self._tilesets.clear()
         self._tileset_paths.clear()
         self._tileset.clear()
+        self._transparent_tilesets.clear()
         for spec in tileset_specs:
             tid, tpath = spec["id"], spec["path"]
             if not os.path.exists(tpath):
                 continue
             try:
-                sheet = pygame.image.load(tpath).convert_alpha()
+                is_t  = bool(spec.get("transparent"))
+                raw   = pygame.image.load(tpath)
+                sheet = raw.convert_alpha() if is_t else raw.convert()
                 self._tilesets[tid]      = sheet
                 self._tileset_paths[tid] = tpath.replace("\\", "/")
+                if is_t:
+                    self._transparent_tilesets.add(tid)
                 self._tileset.add_tileset(tid, sheet)
             except pygame.error:
                 pass
@@ -940,19 +1077,20 @@ class EditorApp:
         from src.course.renderer import CourseRenderer
 
         par, yds, _si = self._hole_panel.get_hole_meta()
-        attr_grid = ["".join(row) for row in self._canvas.attribute_grid]
+        logic_grid = ["".join(row) for row in self._canvas.logic_grid]
         tee = self._canvas.tee_pos or (self._canvas.cols // 2, self._canvas.rows - 3)
         pin = self._canvas.pin_pos or (self._canvas.cols // 2, 3)
 
         hole = Hole(
-            number      = self._current_hole + 1,
-            par         = par,
-            yardage     = yds,
-            tee_pos     = tee,
-            pin_pos     = pin,
-            grid        = attr_grid,
-            visual_grid = self._canvas.visual_grid,
-            tilesets    = self._tilesets if self._canvas.visual_grid else None,
+            number       = self._current_hole + 1,
+            par          = par,
+            yardage      = yds,
+            tee_pos      = tee,
+            pin_pos      = pin,
+            grid         = logic_grid,
+            ground_layer = self._canvas.ground_grid,
+            detail_layer = self._canvas.detail_grid,
+            tilesets     = self._tilesets if self._canvas.ground_grid else None,
         )
 
         try:

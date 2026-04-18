@@ -166,8 +166,28 @@ class GolfRoundState:
             acc_bonus = (eff("accuracy") - 50) / 500.0
 
         new_dist = club.max_distance_yards * power_mult
-        new_acc  = min(0.99, club.accuracy + acc_bonus)
-        return Club(club.name, new_dist, new_acc, club.can_shape)
+        new_acc  = club.accuracy + acc_bonus
+
+        # B2-6: Fitness → late-round fatigue (kicks in after hole 12)
+        if self.hole_index >= 12:
+            fatigue = (self.hole_index - 11) * 0.01 * (1.0 - eff("fitness") / 100.0)
+            new_acc *= (1.0 - fatigue)
+
+        # B2-5: Mental → pressure penalty (tournament only, back 9, ≤3 strokes off lead)
+        t = self.game.current_tournament
+        if t is not None and self.hole_index >= 9:
+            try:
+                lb = t.get_live_leaderboard(len(self.scores), self.scores)
+                leader_vp = lb[0]["vs_par"]
+                player_vp = next(e["vs_par"] for e in lb if e["is_player"])
+                strokes_back = max(0, player_vp - leader_vp)
+                if strokes_back <= 3:
+                    pressure = max(0.0, (3 - strokes_back) / 3.0) * (1.0 - eff("mental") / 100.0)
+                    new_acc *= (1.0 - pressure * 0.25)
+            except Exception:
+                pass
+
+        return Club(club.name, new_dist, min(0.99, new_acc), club.can_shape)
 
     # ── Event handling ────────────────────────────────────────────────────────
 
@@ -364,16 +384,26 @@ class GolfRoundState:
         dx = self._last_safe_x - self.ball.x
         dy = self._last_safe_y - self.ball.y
         dist = math.sqrt(dx * dx + dy * dy)
-        if dist > 0:
-            angle      = math.atan2(dy, dx) + random.uniform(-0.4, 0.4)
-            bounce_px  = dist * random.uniform(0.25, 0.45)
-            world_w, world_h = self.renderer.world_size()
-            bx = clamp(self.ball.x + math.cos(angle) * bounce_px, 0, world_w - 1)
-            by = clamp(self.ball.y + math.sin(angle) * bounce_px, 0, world_h - 1)
-            self.ball.hit(bx, by, is_putt=False)
-            self._bounce_in_progress = True
-        else:
+        if dist <= 0:
             self._auto_select_club()
+            return
+
+        # The ball's speed at impact is proportional to how far it still had
+        # to travel (remaining_dist), NOT how far it has already come (dist).
+        # Using dist caused long shots that barely clipped a tree near their
+        # target to rebound much faster than they were travelling at impact.
+        rdx = self.ball._target_x - self.ball.x
+        rdy = self.ball._target_y - self.ball.y
+        remaining_dist = math.sqrt(rdx * rdx + rdy * rdy)
+
+        # Bounce scales with remaining energy; minimum 10 px so it always moves
+        bounce_px  = max(10.0, remaining_dist) * random.uniform(0.25, 0.45)
+        angle      = math.atan2(dy, dx) + random.uniform(-0.4, 0.4)
+        world_w, world_h = self.renderer.world_size()
+        bx = clamp(self.ball.x + math.cos(angle) * bounce_px, 0, world_w - 1)
+        by = clamp(self.ball.y + math.sin(angle) * bounce_px, 0, world_h - 1)
+        self.ball.hit(bx, by, is_putt=False)
+        self._bounce_in_progress = True
 
     def _water_drop_pos(self):
         """
