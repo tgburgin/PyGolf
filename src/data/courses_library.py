@@ -1,9 +1,14 @@
 """
 courses_library.py — 11 additional courses (2 per tour level; Greenfields is Tour 1 #1).
 
-Each course function returns a Course object built with the same _make_hole
-helper used by courses_data.py.  courses_data.make_greenfields_course() is
-included via get_courses_for_tour_id() so callers always get ≥2 courses.
+Each course function returns a Course object built with the shared build_hole
+helper in src/data/_hole_factory.py.  courses_data.make_greenfields_course()
+is included via `python_courses_for_tour()` so callers always get ≥2 courses.
+
+Do NOT call `python_courses_for_tour` directly from gameplay code — use
+`src.data.tours_data.get_courses_for_tour` instead. That function is the
+single public entry point: it looks in data/courses/<tour>/*.json first
+and only falls back to these Python-built courses when nothing is found.
 """
 
 from src.course.course    import Course
@@ -842,7 +847,9 @@ def make_grand_classic_gc() -> Course:
 # Public API
 # ═════════════════════════════════════════════════════════════════════════════
 
-def get_courses_for_tour_id(tour_id: str) -> list:
+def python_courses_for_tour(tour_id: str) -> list:
+    """Fallback pool of Python-built courses. Use tours_data.get_courses_for_tour
+    from gameplay code instead of this directly."""
     from src.data.courses_data import make_greenfields_course
     _MAP = {
         "amateur":     [make_greenfields_course, make_riverside_meadows],

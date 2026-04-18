@@ -64,8 +64,8 @@ def get_courses_for_tour(tour_id: str) -> list[Course]:
     """
     courses = _load_json_courses(tour_id)
     if not courses:
-        from src.data.courses_library import get_courses_for_tour_id
-        courses = get_courses_for_tour_id(tour_id)
+        from src.data.courses_library import python_courses_for_tour
+        courses = python_courses_for_tour(tour_id)
     return courses
 
 
