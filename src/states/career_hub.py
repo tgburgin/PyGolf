@@ -19,6 +19,7 @@ from src.career.tournament import TOUR_DISPLAY_NAMES, EVENTS_PER_SEASON
 from src.career.staff      import STAFF_TYPES, STAFF_ORDER
 from src.career.sponsorship import get_available_sponsors, is_target_met, progress_label
 from src.constants          import SCREEN_W, SCREEN_H
+from src.ui.flags           import draw_flag, FLAG_W, FLAG_H
 
 def _load_tab_icon(filename):
     path = os.path.join("assets", "ui", filename)
@@ -492,6 +493,16 @@ class CareerHubState:
         # ── Title row ─────────────────────────────────────────────────────────
         title = self.font_title.render("Career Hub", True, C_WHITE)
         surface.blit(title, (cx - title.get_width() // 2, 10))
+
+        # Player name + flag — left-aligned, vertically centred on title row
+        name_s = self.font_med.render(p.name, True, (180, 220, 140))
+        flag_h = FLAG_H
+        flag_w = FLAG_W
+        gap    = 6
+        name_y = 10 + (title.get_height() - name_s.get_height()) // 2
+        flag_y = 10 + (title.get_height() - flag_h) // 2
+        draw_flag(surface, p.nationality, CONTENT_X, flag_y, flag_w, flag_h)
+        surface.blit(name_s, (CONTENT_X + flag_w + gap, name_y))
 
         tour_name = TOUR_DISPLAY_NAMES.get(p.tour_level, "Tour")
         event_n   = p.events_this_season + 1

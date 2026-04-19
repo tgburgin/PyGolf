@@ -882,16 +882,13 @@ class GolfRoundState:
         can_shape = self.current_club.can_shape
         if (mag > 0 and can_shape
                 and shape in (ShotShape.DRAW, ShotShape.FADE)):
-            # Perpendicular offset matches the in-flight shape maths in shot.py:
-            # DRAW curves to the left (perp = (-dy, dx)/mag, negated),
-            # FADE curves to the right.
-            sign = -1.0 if shape == ShotShape.DRAW else 1.0
-            perp_x = -dy / mag
-            perp_y =  dx / mag
-            control_offset = mag * SHAPE_CURVE_FRACTION * sign
-            cx = (sx + ex) / 2 + perp_x * control_offset
-            cy = (sy + ey) / 2 + perp_y * control_offset
-            # Sample the bezier at 16 segments.
+            # Offset is always screen-horizontal so DRAW always bows left and
+            # FADE always bows right, matching the HUD button glyphs regardless
+            # of which direction the player is aiming.
+            sign = 1.0 if shape == ShotShape.DRAW else -1.0
+            control_offset = mag * SHAPE_CURVE_FRACTION
+            cx = (sx + ex) / 2 + sign * control_offset
+            cy = (sy + ey) / 2
             prev = (sx, sy)
             for i in range(1, 17):
                 t = i / 16.0
@@ -900,9 +897,7 @@ class GolfRoundState:
                 y = int(u * u * sy + 2 * u * t * cy + t * t * ey)
                 pygame.draw.line(surface, color, prev, (x, y), 3)
                 prev = (x, y)
-            # Arrow-head tangent at t=1: derivative 2*(1-t)*(cp-p0)+2*t*(p1-cp)
-            # at t=1 that's 2*(p1-cp).
-            tx, ty = (ex - cx), (ey - cy)
+            tx, ty = cx - sx, cy - sy
         else:
             pygame.draw.line(surface, color, (sx, sy), (ex, ey), 3)
             tx, ty = dx, dy

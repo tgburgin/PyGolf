@@ -11,6 +11,7 @@ Layout
 import pygame
 
 from src.career.player import NATIONALITIES, STAT_KEYS, BASE_STAT, MAX_STAT
+from src.ui.flags import draw_flag, FLAG_W, FLAG_H
 
 # ── Colours ───────────────────────────────────────────────────────────────────
 C_BG        = (  6,  12,   6)
@@ -269,7 +270,15 @@ class CharacterCreationState:
 
         nat_name = NATIONALITIES[self._nat_idx]
         ns2 = self.font_medium.render(nat_name, True, C_WHITE)
-        surface.blit(ns2, ns2.get_rect(center=nat_box.center))
+        # Flag + name, centred together inside the box
+        flag_w, flag_h = FLAG_W, FLAG_H
+        gap = 8
+        group_w = flag_w + gap + ns2.get_width()
+        group_x = nat_box.centerx - group_w // 2
+        flag_y  = nat_box.centery - flag_h // 2
+        draw_flag(surface, nat_name, group_x, flag_y, flag_w, flag_h)
+        surface.blit(ns2, (group_x + flag_w + gap,
+                            nat_box.centery - ns2.get_height() // 2))
 
         # ── Tip ───────────────────────────────────────────────────────────────
         tip = self.font_small.render("Click name box, then type your name",

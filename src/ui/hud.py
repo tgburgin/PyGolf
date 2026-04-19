@@ -284,18 +284,16 @@ class HUD:
             pygame.draw.polygon(surface, color,
                                 [(cx, top - 1), (cx - 3, top + 4), (cx + 3, top + 4)])
             return
-        # DRAW curves left (points end up-left), FADE curves right.
-        sign = -1 if shape == ShotShape.DRAW else 1
-        pts = [(cx - sign * 6, top + 11),
-               (cx,            top + 7),
-               (cx + sign * 2, top + 1)]
+        # C-curve glyph: ball starts at bottom-centre, bows left (DRAW) or
+        # right (FADE) in the middle, returns to centre at the top.
+        bow = -6 if shape == ShotShape.DRAW else 6
+        pts = [(cx,       top + 11),   # bottom centre
+               (cx + bow, top + 6),    # mid — pulled left/right
+               (cx,       top + 1)]    # top centre
         pygame.draw.lines(surface, color, False, pts, 2)
-        tip = pts[-1]
-        pygame.draw.polygon(surface, color, [
-            tip,
-            (tip[0] - sign * 4, tip[1] + 3),
-            (tip[0] + sign * 1, tip[1] + 4),
-        ])
+        # Arrowhead points straight up from the top centre
+        pygame.draw.polygon(surface, color,
+                            [(cx, top - 1), (cx - 3, top + 4), (cx + 3, top + 4)])
 
     def _draw_wind(self, surface, x, y, angle, strength):
         """Draw a compact wind indicator: compass arrow + cardinal + strength dots."""
