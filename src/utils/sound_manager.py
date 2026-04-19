@@ -287,6 +287,11 @@ class SoundManager:
         self._bird_timer = 0.0        # counts down to next tweet
         self._bird_rng   = random.Random()
 
+        # Crowd murmur scheduling
+        self._crowd_mode  = False
+        self._crowd_timer = 0.0
+        self._crowd_rng   = random.Random()
+
         # Volume settings
         self.master_vol  = 1.0
         self.sfx_vol     = 0.9
@@ -343,38 +348,53 @@ class SoundManager:
         if s:
             s.play()
 
+    def play_crowd_cheer(self) -> None:
+        """Play a crowd cheer only when crowd ambient is active for this course."""
+        if self._crowd_mode:
+            self.play("crowd_cheer")
+
     def play_ambient(self, sid: str) -> None:
         if not self._ready:
             return
         self.stop_ambient()
         if sid == "ambient_birds":
-            # Occasional tweet instead of a constant loop
             self._bird_mode  = True
             self._bird_timer = self._bird_rng.uniform(4.0, 10.0)
+        elif sid == "ambient_crowd":
+            self._crowd_mode  = True
+            self._crowd_timer = self._crowd_rng.uniform(30.0, 90.0)
         else:
             s = self._sounds.get(sid)
             if s:
                 self._ambient_channel = s.play(loops=-1)
 
     def stop_ambient(self) -> None:
-        self._bird_mode = False
+        self._bird_mode  = False
+        self._crowd_mode = False
         if self._ambient_channel is not None:
             self._ambient_channel.stop()
             self._ambient_channel = None
 
     def update(self, dt: float) -> None:
-        """Call every frame from the game loop to drive occasional bird tweets."""
-        if not self._bird_mode or not self._ready:
+        """Call every frame to drive occasional ambient sounds."""
+        if not self._ready:
             return
-        self._bird_timer -= dt
-        if self._bird_timer <= 0.0:
-            s = self._sounds.get("bird_tweet")
-            if s:
-                vol = self.master_vol * self.ambient_vol
-                s.set_volume(vol)
-                s.play()
-            # Next tweet in 8–25 seconds
-            self._bird_timer = self._bird_rng.uniform(8.0, 25.0)
+        if self._bird_mode:
+            self._bird_timer -= dt
+            if self._bird_timer <= 0.0:
+                s = self._sounds.get("bird_tweet")
+                if s:
+                    s.set_volume(self.master_vol * self.ambient_vol)
+                    s.play()
+                self._bird_timer = self._bird_rng.uniform(8.0, 25.0)
+        if self._crowd_mode:
+            self._crowd_timer -= dt
+            if self._crowd_timer <= 0.0:
+                s = self._sounds.get("ambient_crowd")
+                if s:
+                    s.set_volume(self.master_vol * self.ambient_vol)
+                    s.play()
+                self._crowd_timer = self._crowd_rng.uniform(30.0, 90.0)
 
     # ── Volume ────────────────────────────────────────────────────────────────
 
@@ -395,7 +415,7 @@ class SoundManager:
 
     def _apply_volumes(self) -> None:
         """Bake master * category volume into each Sound object."""
-        ambient_ids = {"ambient_birds", "ambient_crowd"}
+        ambient_ids = {"ambient_birds"}
         for sid, s in self._sounds.items():
             if sid in ambient_ids:
                 s.set_volume(self.master_vol * self.ambient_vol)

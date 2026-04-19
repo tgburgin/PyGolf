@@ -546,10 +546,13 @@ class GolfRoundState:
         diff = self.strokes - self.hole.par
         if self.strokes == 1:
             _snd.play("hole_in_one")
+            _snd.play_crowd_cheer()
         elif diff <= -2:
             _snd.play("eagle")
+            _snd.play_crowd_cheer()
         elif diff == -1:
             _snd.play("birdie")
+            _snd.play_crowd_cheer()
         else:
             _snd.play("ball_in_hole")
 

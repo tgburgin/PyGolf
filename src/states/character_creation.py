@@ -261,7 +261,7 @@ class CharacterCreationState:
         pygame.draw.rect(surface, C_BORDER,   nat_box, 1, border_radius=5)
 
         # Prev / Next arrows
-        for btn, txt in [(self._nat_prev, "◀"), (self._nat_next, "▶")]:
+        for btn, txt in [(self._nat_prev, "<"), (self._nat_next, ">")]:
             pygame.draw.rect(surface, C_BTN_SML, btn, border_radius=4)
             pygame.draw.rect(surface, C_BORDER,  btn, 1, border_radius=4)
             ts = self.font_medium.render(txt, True, C_WHITE)
@@ -354,5 +354,5 @@ class CharacterCreationState:
         bg2 = (50, 30, 30) if self._btn_back_hov else (35, 22, 22)
         pygame.draw.rect(surface, bg2,    self._btn_back, border_radius=6)
         pygame.draw.rect(surface, C_RED,  self._btn_back, 1, border_radius=6)
-        bl = self.font_small.render("◀ Back", True, (200, 150, 150))
+        bl = self.font_small.render("< Back", True, (200, 150, 150))
         surface.blit(bl, bl.get_rect(center=self._btn_back.center))

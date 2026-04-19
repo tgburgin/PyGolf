@@ -501,7 +501,7 @@ class MainMenuState:
         sg_bg = C_BTN_HOV if self._hovered_settings else C_BTN
         pygame.draw.rect(surface, sg_bg,   self._btn_settings, border_radius=6)
         pygame.draw.rect(surface, C_BORDER, self._btn_settings, 1, border_radius=6)
-        sg_lbl = self.font_small.render("⚙ Settings", True, C_WHITE)
+        sg_lbl = self.font_small.render("Settings", True, C_WHITE)
         surface.blit(sg_lbl, sg_lbl.get_rect(center=self._btn_settings.center))
 
         if self._show_saves:
