@@ -672,7 +672,8 @@ class GolfRoundState:
         self.hud.draw(surface, self.hole, self.strokes,
                       self.current_club, self.shot_ctrl, terrain_name,
                       renderer=self.renderer, ball_world_pos=self.ball.pos,
-                      wind_angle=self.wind_angle, wind_strength=self.wind_strength)
+                      wind_angle=self.wind_angle, wind_strength=self.wind_strength,
+                      ball_id=getattr(self.game.player, "ball_type", None))
 
         if self.message and self.message_timer > 0:
             self._draw_message(surface)

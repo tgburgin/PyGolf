@@ -41,6 +41,7 @@ C_RED_DIM    = ( 80,  24,  24)
 
 from src.constants import SCREEN_W, SCREEN_H
 from src.ui.menu_background import MenuBackground
+from src.ui.button          import draw_button
 
 TOUR_NAMES = {
     1: "Amateur Circuit",
@@ -70,6 +71,7 @@ class MainMenuState:
         self._previews = [get_save_preview(p) for p in self._saves[:5]]
 
         self._hovered_btn  = None
+        self._pressed_btn  = None   # name of button currently held down
         self._hovered_save = None   # index of hovered load-row
         self._hovered_del  = None   # index of hovered delete button
         self._show_saves   = False
@@ -157,13 +159,34 @@ class MainMenuState:
             if self._btn_settings.collidepoint(p):
                 self._audio_panel.open()
                 return
-            if self._btn_new.collidepoint(p):
+            for name, rect in [("new",  self._btn_new),
+                               ("load", self._btn_load),
+                               ("try",  self._btn_try),
+                               ("quit", self._btn_quit)]:
+                if rect.collidepoint(p):
+                    if name == "load" and not self._saves:
+                        break
+                    self._pressed_btn = name
+                    break
+
+        elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+            p = event.pos
+            released = self._pressed_btn
+            self._pressed_btn = None
+            if released is None:
+                return
+            rect_by_name = {"new":  self._btn_new,  "load": self._btn_load,
+                            "try":  self._btn_try,  "quit": self._btn_quit}
+            r = rect_by_name.get(released)
+            if r is None or not r.collidepoint(p):
+                return
+            if released == "new":
                 self._go_new_game()
-            elif self._btn_load.collidepoint(p) and self._saves:
+            elif released == "load" and self._saves:
                 self._show_saves = True
-            elif self._btn_try.collidepoint(p):
+            elif released == "try":
                 self._open_course_picker()
-            elif self._btn_quit.collidepoint(p):
+            elif released == "quit":
                 pygame.quit()
                 sys.exit()
 
@@ -410,6 +433,7 @@ class MainMenuState:
 
     def update(self, dt):
         self._bg.update(dt)
+        self._title_t = getattr(self, "_title_t", 0.0) + dt
         if self._load_error_timer > 0:
             self._load_error_timer = max(0.0, self._load_error_timer - dt)
             if self._load_error_timer == 0.0:
@@ -421,8 +445,18 @@ class MainMenuState:
         self._bg.draw(surface)
         cx = SCREEN_W // 2
 
+        import math
         title = self.font_title.render("Let's Golf!", True, C_TITLE)
-        surface.blit(title, (cx - title.get_width() // 2, 150))
+        # Gentle 3 px bob + slow sway — signals "alive" without distraction.
+        t = getattr(self, "_title_t", 0.0)
+        bob   = int(3 * math.sin(t * 1.6))
+        sway  = int(2 * math.sin(t * 0.9))
+        tx    = cx - title.get_width() // 2 + sway
+        ty    = 150 + bob
+        # Soft drop shadow for depth against the bright sky.
+        shadow = self.font_title.render("Let's Golf!", True, (10, 26, 10))
+        surface.blit(shadow, (tx + 3, ty + 4))
+        surface.blit(title,  (tx, ty))
 
         sub = self.font_sub.render("A Career Golf Adventure", True, C_SUB)
         surface.blit(sub, (cx - sub.get_width() // 2, 248))
@@ -435,14 +469,15 @@ class MainMenuState:
             ("quit", self._btn_quit, "Quit"),
         ]:
             disabled = (name == "load" and load_disabled)
-            hovered  = self._hovered_btn == name and not disabled
-            bg   = C_BTN_DIS if disabled else (C_BTN_HOV if hovered else C_BTN)
-            bord = C_BORDER_DIS if disabled else C_BORDER
-            pygame.draw.rect(surface, bg,   rect, border_radius=8)
-            pygame.draw.rect(surface, bord, rect, 2, border_radius=8)
-            tc = C_GRAY if disabled else C_WHITE
-            lbl = self.font_btn.render(label, True, tc)
-            surface.blit(lbl, lbl.get_rect(center=rect.center))
+            draw_button(
+                surface, rect, label, self.font_btn,
+                bg=C_BTN, bg_hover=C_BTN_HOV, bg_disabled=C_BTN_DIS,
+                border=C_BORDER, border_disabled=C_BORDER_DIS,
+                text_color=C_WHITE, text_disabled=C_GRAY,
+                hovered=(self._hovered_btn == name and not disabled),
+                pressed=(self._pressed_btn == name),
+                disabled=disabled,
+            )
 
         if load_disabled:
             hint = self.font_small.render("No save files found", True, (70, 85, 70))

@@ -498,9 +498,16 @@ class CareerHubState:
                 accent = pygame.Rect(r.x + 4, r.bottom - 3, r.width - 8, 3)
                 pygame.draw.rect(surface, C_GOLD, accent, border_radius=2)
             pygame.draw.rect(surface, C_BORDER, r, 1, border_radius=4)
-            ts = self.font_med.render(label, True,
-                                      C_WHITE if active else C_GRAY)
-            surface.blit(ts, ts.get_rect(center=r.center))
+            icon_col = C_WHITE if active else C_GRAY
+            ts = self.font_med.render(label, True, icon_col)
+            # Icon + label, group-centered together
+            icon_w, gap = 18, 6
+            total_w = icon_w + gap + ts.get_width()
+            group_x = r.centerx - total_w // 2
+            self._draw_tab_icon(surface, i,
+                                group_x, r.centery - 8, icon_col)
+            surface.blit(ts, (group_x + icon_w + gap,
+                              r.centery - ts.get_height() // 2))
 
         # Play Event button (persistent)
         bg = C_BTN_PLAY_H if self._hov == "play" else C_BTN_PLAY
@@ -743,6 +750,12 @@ class CareerHubState:
         surface.blit(hdr, (r.x + 12, by))
         by += 22
 
+        # Current driver distance — the reference the preview is scaled from.
+        from src.golf.club import get_club_bag
+        cur_driver = next((c for c in get_club_bag(p.club_set_name)
+                           if c.name == "Driver"), None)
+        base_driver_yds = cur_driver.max_distance_yards if cur_driver else 250
+
         for (ball_id, btn_r) in self._ball_btns:
             info   = BALL_TYPES[ball_id]
             owned  = ball_id in p.owned_balls
@@ -754,6 +767,13 @@ class CareerHubState:
             name_str = info["label"] + ("  [active]" if active else "")
             ls = self.font_med.render(name_str, True, col)
             surface.blit(ls, (r.x + 10, by))
+
+            # Preview: effective driver distance with this ball, right-aligned
+            # above the Buy/Select button. Lets the player see the concrete
+            # payoff of the trade-offs printed below.
+            preview_yds = int(round(base_driver_yds * info["dist_mult"]))
+            pv = self.font_small.render(f"~{preview_yds}y", True, (130, 190, 130))
+            surface.blit(pv, (btn_r.left - 8 - pv.get_width(), by + 2))
 
             if owned and not active:
                 sub, sc = ball_effect_summary(ball_id), C_GRAY
@@ -1125,6 +1145,30 @@ class CareerHubState:
             ]
 
         return [(f"Finish top {threshold} in the season", False)]
+
+    def _draw_tab_icon(self, surface, tab_idx: int, x: int, y: int, col):
+        """Tiny pixel-art glyph per tab: equipment, staff, sponsor, stats."""
+        if tab_idx == 0:
+            # Club crossed with dumbbell — "training + equipment"
+            pygame.draw.line(surface, col, (x + 2, y + 14), (x + 14, y + 2), 2)
+            pygame.draw.circle(surface, col, (x + 14, y + 2),  2)
+            pygame.draw.rect(surface, col, (x + 1, y + 12, 4, 4))
+        elif tab_idx == 1:
+            # Person icon — "staff"
+            pygame.draw.circle(surface, col, (x + 8, y + 4), 3)
+            pygame.draw.rect(surface, col, (x + 3, y + 9, 11, 6), border_radius=2)
+        elif tab_idx == 2:
+            # Dollar sign — "sponsors"
+            pygame.draw.line(surface, col, (x + 8, y + 1), (x + 8, y + 15), 2)
+            pygame.draw.arc(surface, col, (x + 2, y + 2, 12, 6), 0.4, 3.5, 2)
+            pygame.draw.arc(surface, col, (x + 2, y + 8, 12, 6), -2.7, 0.7, 2)
+        elif tab_idx == 3:
+            # Trophy — "career stats"
+            pygame.draw.rect(surface, col, (x + 4, y + 2, 8, 7))
+            pygame.draw.line(surface, col, (x + 4, y + 5), (x + 1, y + 5), 2)
+            pygame.draw.line(surface, col, (x + 12, y + 5), (x + 15, y + 5), 2)
+            pygame.draw.rect(surface, col, (x + 6, y + 9, 4, 3))
+            pygame.draw.rect(surface, col, (x + 3, y + 12, 10, 2))
 
     @staticmethod
     def _driver_hint(set_name: str) -> str:
