@@ -380,18 +380,17 @@ class MainMenuState:
             return
 
         if event.type == pygame.MOUSEWHEEL:
-            # Scroll the list up/down
+            # Scroll the list up/down, then refresh hover so the highlighted
+            # row tracks whatever is now under the pointer (Funfetsunk/PyGolf#1).
             max_scroll = max(0, len(getattr(self, "_picker_entries", [])) - 10)
             self._picker_scroll = max(0, min(
                 max_scroll, self._picker_scroll - event.y))
+            self._rebuild_picker_rects()
+            self._refresh_picker_hover(pygame.mouse.get_pos())
             return
 
         if event.type == pygame.MOUSEMOTION:
-            p = event.pos
-            self._picker_hover_idx = None
-            for idx, (_, _, rect) in enumerate(self._picker_rects):
-                if rect.collidepoint(p):
-                    self._picker_hover_idx = idx
+            self._refresh_picker_hover(event.pos)
             return
 
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
@@ -405,6 +404,33 @@ class MainMenuState:
                     return
             if not self._picker_panel.collidepoint(p):
                 self._show_picker = False
+
+    def _rebuild_picker_rects(self):
+        """Recompute `_picker_rects` to match the current scroll position.
+
+        Called both from the scroll handler (so hover stays aligned with
+        whatever row is now under the pointer) and reused inside
+        `_draw_course_picker`.
+        """
+        entries = getattr(self, "_picker_entries", [])
+        r       = self._picker_panel
+        row_h, rows_visible = 40, 10
+        start_y = r.y + 78
+        scroll  = self._picker_scroll
+        visible = entries[scroll: scroll + rows_visible]
+        self._picker_rects = []
+        for i, entry in enumerate(visible):
+            row_rect = pygame.Rect(r.x + 14, start_y + i * (row_h + 2),
+                                   r.width - 28, row_h)
+            self._picker_rects.append((entry["tour_id"], entry["course"].name, row_rect))
+
+    def _refresh_picker_hover(self, pos):
+        self._picker_hover_idx = None
+        scroll = self._picker_scroll
+        for idx, (_, _, rect) in enumerate(self._picker_rects):
+            if rect.collidepoint(pos):
+                self._picker_hover_idx = scroll + idx
+                return
 
     def _launch_practice_round(self, tour_id: str, course_name: str):
         """Spin up a throwaway player and drop straight into GolfRoundState."""
