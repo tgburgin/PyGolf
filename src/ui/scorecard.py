@@ -75,7 +75,7 @@ class Scorecard:
 
     def __init__(self, course):
         self.course    = course
-        self.font_hdr  = pygame.font.SysFont("arial", 13, bold=True)
+        self.font_hdr  = pygame.font.SysFont("arial", 15, bold=True)
         self.font_cell = pygame.font.SysFont("arial", 14, bold=True)
         self.font_lbl  = pygame.font.SysFont("arial", 12)
 

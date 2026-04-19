@@ -29,8 +29,7 @@ C_PLAYER_BD = ( 60, 160,  60)
 C_BTN       = ( 28,  78,  28)
 C_BTN_HOV   = ( 48, 120,  48)
 
-SCREEN_W = 1280
-SCREEN_H = 720
+from src.constants import SCREEN_W, SCREEN_H
 
 ROW_H      = 22
 MAX_ROWS   = 22   # rows visible without scrolling

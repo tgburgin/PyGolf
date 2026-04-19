@@ -29,10 +29,10 @@ ShotResult = namedtuple('ShotResult', ['target_x', 'target_y', 'aim_x', 'aim_y',
 MAX_DRAG_PIXELS = 130
 
 # Click must be within this many screen pixels of the ball to start aiming.
-AIM_CLICK_RADIUS = 35
+AIM_CLICK_RADIUS = 50
 
 # How much lateral curve is applied as a fraction of total shot distance.
-SHAPE_CURVE_FRACTION = 0.10
+SHAPE_CURVE_FRACTION = 0.15
 
 # Scatter multipliers (fraction of shot distance).
 # Lateral: perpendicular miss — bell-curve via gauss.
@@ -135,10 +135,11 @@ class ShotController:
         perp_x = -dir_y   # perpendicular left
         perp_y =  dir_x
         shape_offset_px = 0.0
+        shape_frac = SHAPE_CURVE_FRACTION * getattr(club, "shape_mult", 1.0)
         if self.shot_shape == ShotShape.DRAW and club.can_shape:
-            shape_offset_px = -shot_dist_px * SHAPE_CURVE_FRACTION   # left curve
+            shape_offset_px = -shot_dist_px * shape_frac   # left curve
         elif self.shot_shape == ShotShape.FADE and club.can_shape:
-            shape_offset_px =  shot_dist_px * SHAPE_CURVE_FRACTION   # right curve
+            shape_offset_px =  shot_dist_px * shape_frac   # right curve
 
         # Effective accuracy — putter degrades with distance; other clubs use terrain mod
         if club.name == "Putter":

@@ -19,7 +19,8 @@ Public interface
 
 import pygame
 
-SOURCE_TILE  = 16   # source tile size in PNG sheets
+from src.constants import SOURCE_TILE   # shared with game loader/renderer
+
 DISPLAY_TILE = 32   # displayed tile size in the panel
 TILE_GAP     = 1    # 1-px gap between tiles
 MARGIN_X     = 6    # horizontal inner margin

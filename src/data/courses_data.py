@@ -27,67 +27,8 @@ Par breakdown  (total 72):
   Par 5 × 4  →  holes 2, 6, 12, 17
 """
 
-from src.course.course import Course
-from src.course.hole   import Hole
-
-_ROWS = 36
-_COLS = 48
-
-_CHAR = {
-    'bunker':     'B',
-    'water':      'W',
-    'trees':      'T',
-    'deep_rough': 'D',
-}
-
-
-def _make_hole(number, par, yardage, tee_pos, pin_pos, fairway_segs, features):
-    """Build a Hole from declarative specs (see module docstring)."""
-    tc, tr = tee_pos
-    pc, pr = pin_pos
-
-    # 1. Rough everywhere
-    grid = [['R'] * _COLS for _ in range(_ROWS)]
-
-    # 2. Tree / OOB borders (rows 0-1, row 35, cols 0-1, cols 46-47)
-    for c in range(_COLS):
-        grid[0][c] = grid[1][c] = grid[_ROWS - 1][c] = 'T'
-    for r in range(_ROWS):
-        grid[r][0] = grid[r][1] = grid[r][_COLS - 1] = grid[r][_COLS - 2] = 'T'
-
-    # 3. Fairway segments
-    for r1, r2, c1, c2 in fairway_segs:
-        for r in range(r1, r2 + 1):
-            for c in range(c1, c2 + 1):
-                if 2 <= r < _ROWS - 1 and 2 <= c < _COLS - 2:
-                    grid[r][c] = 'F'
-
-    # 4. Feature layers (override rough/fairway)
-    for ftype, r1, r2, c1, c2 in features:
-        ch = _CHAR[ftype]
-        for r in range(r1, r2 + 1):
-            for c in range(c1, c2 + 1):
-                if 0 <= r < _ROWS and 0 <= c < _COLS:
-                    grid[r][c] = ch
-
-    # 5. Green  (3 rows × 9 cols centred on pin, overrides features)
-    for r in range(max(2, pr - 1), min(_ROWS - 1, pr + 3)):
-        for c in range(max(2, pc - 4), min(_COLS - 2, pc + 5)):
-            grid[r][c] = 'G'
-
-    # 6. Tee box  (2 rows × 6 cols centred on tee, overrides features)
-    for r in range(max(2, tr - 1), min(_ROWS - 1, tr + 1)):
-        for c in range(max(2, tc - 3), min(_COLS - 2, tc + 3)):
-            grid[r][c] = 'X'
-
-    return Hole(
-        number  = number,
-        par     = par,
-        yardage = yardage,
-        tee_pos = tee_pos,
-        pin_pos = pin_pos,
-        grid    = [''.join(row) for row in grid],
-    )
+from src.course.course    import Course
+from src.data._hole_factory import build_hole as _make_hole   # noqa: F401
 
 
 # ─────────────────────────────────────────────────────────────────────────────

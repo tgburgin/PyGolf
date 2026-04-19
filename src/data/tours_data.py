@@ -76,8 +76,8 @@ def get_courses_for_tour(tour_id: str) -> list[Course]:
         if courses:
             return courses
 
-    from src.data.courses_library import get_courses_for_tour_id
-    return get_courses_for_tour_id(tour_id)
+    from src.data.courses_library import python_courses_for_tour
+    return python_courses_for_tour(tour_id)
 
 
 def discover_course_paths(tour_id: str) -> list[str]:

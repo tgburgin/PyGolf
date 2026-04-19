@@ -1,62 +1,23 @@
 """
 courses_library.py — 11 additional courses (2 per tour level; Greenfields is Tour 1 #1).
 
-Each course function returns a Course object built with the same _make_hole
-helper used by courses_data.py.  courses_data.make_greenfields_course() is
-included via get_courses_for_tour_id() so callers always get ≥2 courses.
+Each course function returns a Course object built with the shared build_hole
+helper in src/data/_hole_factory.py.  courses_data.make_greenfields_course()
+is included via `python_courses_for_tour()` so callers always get ≥2 courses.
+
+Do NOT call `python_courses_for_tour` directly from gameplay code — use
+`src.data.tours_data.get_courses_for_tour` instead. That function is the
+single public entry point: it looks in data/courses/<tour>/*.json first
+and only falls back to these Python-built courses when nothing is found.
 """
 
-from src.course.course import Course
-from src.course.hole   import Hole
-
-_R = 36   # grid rows
-_C = 48   # grid cols
-
-_CHAR = {
-    'bunker':     'B',
-    'water':      'W',
-    'trees':      'T',
-    'deep_rough': 'D',
-}
+from src.course.course    import Course
+from src.data._hole_factory import build_hole
 
 
 def _h(number, par, yardage, tee, pin, fw, feats=None):
-    """Build one hole — identical logic to courses_data._make_hole."""
-    tc, tr = tee
-    pc, pr = pin
-    grid = [['R'] * _C for _ in range(_R)]
-
-    for c in range(_C):
-        grid[0][c] = grid[1][c] = grid[_R - 1][c] = 'T'
-    for r in range(_R):
-        grid[r][0] = grid[r][1] = grid[r][_C - 1] = grid[r][_C - 2] = 'T'
-
-    for r1, r2, c1, c2 in (fw or []):
-        for r in range(r1, r2 + 1):
-            for c in range(c1, c2 + 1):
-                if 2 <= r < _R - 1 and 2 <= c < _C - 2:
-                    grid[r][c] = 'F'
-
-    for ftype, r1, r2, c1, c2 in (feats or []):
-        ch = _CHAR[ftype]
-        for r in range(r1, r2 + 1):
-            for c in range(c1, c2 + 1):
-                if 0 <= r < _R and 0 <= c < _C:
-                    grid[r][c] = ch
-
-    for r in range(max(2, pr - 1), min(_R - 1, pr + 3)):
-        for c in range(max(2, pc - 4), min(_C - 2, pc + 5)):
-            grid[r][c] = 'G'
-
-    for r in range(max(2, tr - 1), min(_R - 1, tr + 1)):
-        for c in range(max(2, tc - 3), min(_C - 2, tc + 3)):
-            grid[r][c] = 'X'
-
-    return Hole(
-        number=number, par=par, yardage=yardage,
-        tee_pos=tee, pin_pos=pin,
-        grid=[''.join(row) for row in grid],
-    )
+    """Thin wrapper — keeps existing positional-arg call sites readable."""
+    return build_hole(number, par, yardage, tee, pin, fw, feats)
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -883,13 +844,204 @@ def make_grand_classic_gc() -> Course:
 
 
 # ═════════════════════════════════════════════════════════════════════════════
+# SIGNATURE — Hollowcrest Downs (Amateur Tour)
+# ═════════════════════════════════════════════════════════════════════════════
+
+def make_hollowcrest_downs() -> Course:
+    """Hollowcrest Downs — Par 72.
+
+    A signature parkland course that deliberately breaks the south-to-north
+    monotony of most courses in the game. Features:
+
+    - Short, drivable par 4 (Hole 4) for risk/reward decisions.
+    - Island green par 3 (Hole 7) with a forced carry.
+    - Cape-style par 5 (Hole 2) inviting a hero-line water carry.
+    - Split-fairway par 5 (Hole 8) — pick your route.
+    - Peninsula green par 4 (Hole 14) with water on three sides.
+    - Two holes routed east-to-west (6, 11) to reset the player's mental map.
+    - A full-fairway water ribbon (Hole 16) forcing a planned carry.
+    - Monumental par 5 closer (Hole 18) with risk on both sides.
+
+    Par breakdown: front 9 = 36, back 9 = 36. Four par 3s (3, 7, 12, 17),
+    four par 5s (2, 8, 13, 18), ten par 4s of varied length (280y–395y).
+    """
+    holes = [
+        # ── Front 9 ──────────────────────────────────────────────────────────
+        # 1 — "The Gentle Rise" — Par 4, 330y. Soft opener, wide corridor,
+        # flanking bunkers at drive landing area.
+        _h(1, 4, 330, (23, 33), (23, 3),
+           [(5, 32, 17, 29)],
+           [('bunker', 17, 20, 13, 16),
+            ('bunker', 17, 20, 30, 33)]),
+
+        # 2 — "Serpentine" — Par 5, 470y. Cape hole. Water inside the dogleg-
+        # right bend. Cut it for a chance at eagle; play safe around for par.
+        _h(2, 5, 470, (10, 33), (38, 3),
+           [(20, 32, 5, 17), (3, 20, 28, 43)],
+           [('water', 8, 20, 15, 28),
+            ('bunker', 7, 10, 35, 39),
+            ('trees', 3, 32, 2, 4)]),
+
+        # 3 — "The Cathedral" — Par 3, 170y. Tree-lined corridor, bunker short.
+        _h(3, 3, 170, (23, 26), (23, 9),
+           [(11, 25, 20, 26)],
+           [('trees', 4, 27, 13, 16),
+            ('trees', 4, 27, 30, 33),
+            ('bunker', 11, 13, 14, 18)]),
+
+        # 4 — "The Temptation" — Par 4, 280y. DRIVABLE signature hole.
+        # Small green ringed by sand. Go for it and birdie, miss and pay up.
+        _h(4, 4, 280, (23, 33), (23, 5),
+           [(7, 32, 18, 28)],
+           [('bunker', 4, 8, 14, 18),
+            ('bunker', 4, 8, 28, 32),
+            ('bunker', 8, 11, 17, 19),
+            ('bunker', 8, 11, 27, 29)]),
+
+        # 5 — "The Bottleneck" — Par 4, 380y. Wide fairway pinches down to a
+        # narrow approach with water squeezing both sides near the green.
+        _h(5, 4, 380, (23, 33), (23, 3),
+           [(14, 32, 15, 31), (5, 13, 21, 25)],
+           [('water', 6, 13, 2, 17),
+            ('water', 6, 13, 29, 45),
+            ('bunker', 14, 16, 12, 15),
+            ('bunker', 14, 16, 31, 34)]),
+
+        # 6 — "The Reverse" — Par 4, 340y. Routed E-to-W. Dogleg with bunker
+        # at the inside of the bend; trees guard the outside.
+        _h(6, 4, 340, (40, 33), (5, 3),
+           [(18, 32, 28, 44), (3, 18, 4, 18)],
+           [('bunker', 14, 17, 18, 24),
+            ('trees', 20, 32, 4, 8),
+            ('trees', 3, 18, 22, 26),
+            ('trees', 5, 20, 38, 43)]),
+
+        # 7 — "The Island" — Par 3, 155y. Island green. Water short, long,
+        # left AND right. Only a narrow tee-to-green landing strip.
+        _h(7, 3, 155, (23, 23), (23, 7),
+           [(10, 22, 21, 25)],
+           [('water', 3, 5, 18, 28),
+            ('water', 10, 13, 18, 28),
+            ('water', 4, 12, 13, 17),
+            ('water', 4, 12, 29, 33)]),
+
+        # 8 — "The Divided Road" — Par 5, 505y. Split-fairway. Left route is
+        # longer but safer; right corridor is shorter but tight with bunkers
+        # and deep rough between the two corridors.
+        _h(8, 5, 505, (8, 33), (40, 3),
+           [(20, 32, 5, 13), (4, 21, 13, 22), (3, 12, 30, 43)],
+           [('deep_rough', 14, 22, 23, 29),
+            ('bunker', 18, 22, 14, 18),
+            ('trees', 3, 18, 3, 5),
+            ('bunker', 4, 7, 36, 40)]),
+
+        # 9 — "The Wedge" — Par 4, 355y. Dogleg right. Trees hug the hero
+        # corner; bunkers protect the safe-line approach.
+        _h(9, 4, 355, (10, 33), (36, 3),
+           [(18, 32, 5, 16), (4, 20, 26, 40)],
+           [('trees', 3, 20, 2, 4),
+            ('trees', 3, 20, 42, 45),
+            ('bunker', 12, 16, 21, 26),
+            ('bunker', 4, 7, 36, 40)]),
+
+        # ── Back 9 ──────────────────────────────────────────────────────────
+        # 10 — "The Gallery" — Par 4, 330y. Straight. Deep-rough banks both
+        # sides. Find the fairway or face a brutal recovery.
+        _h(10, 4, 330, (23, 33), (23, 3),
+           [(5, 32, 18, 28)],
+           [('deep_rough', 5, 32, 13, 17),
+            ('deep_rough', 5, 32, 29, 33),
+            ('trees', 5, 32, 2, 4),
+            ('trees', 5, 32, 43, 45)]),
+
+        # 11 — "Crossover" — Par 4, 395y. Dogleg LEFT, E-to-W routing. Long
+        # water ribbon threatens the left side; trees bracket the right.
+        _h(11, 4, 395, (40, 33), (8, 3),
+           [(18, 32, 28, 44), (3, 20, 5, 22)],
+           [('water', 10, 28, 2, 7),
+            ('trees', 5, 22, 22, 26),
+            ('bunker', 14, 18, 16, 22),
+            ('bunker', 4, 7, 9, 13)]),
+
+        # 12 — "Elevation" — Par 3, 195y. Long iron required. Bunker short,
+        # deep rough long, trees flank. Miss the green and you'll know.
+        _h(12, 3, 195, (23, 30), (23, 10),
+           [(12, 29, 20, 26)],
+           [('bunker', 12, 15, 19, 27),
+            ('trees', 5, 10, 13, 16),
+            ('trees', 5, 10, 30, 33),
+            ('deep_rough', 3, 9, 19, 27)]),
+
+        # 13 — "Thread the Needle" — Par 5, 520y. Three-stage fairway.
+        # Water at the first-to-second landing area, bunkers flank, trees
+        # line the out-of-bounds. The scoring par 5 for the brave.
+        _h(13, 5, 520, (8, 33), (40, 3),
+           [(23, 32, 5, 16), (10, 23, 14, 32), (3, 12, 28, 43)],
+           [('water', 14, 22, 22, 28),
+            ('bunker', 18, 22, 10, 14),
+            ('trees', 3, 14, 2, 4),
+            ('trees', 23, 32, 2, 4),
+            ('bunker', 4, 8, 28, 32)]),
+
+        # 14 — "The Peninsula" — Par 4, 310y. Green juts into water on
+        # three sides. Bail-out bunkers short. Dramatic approach shot.
+        _h(14, 4, 310, (23, 33), (23, 3),
+           [(7, 32, 17, 29)],
+           [('water', 2, 7, 2, 17),
+            ('water', 2, 7, 29, 45),
+            ('bunker', 14, 18, 14, 17),
+            ('bunker', 14, 18, 29, 32)]),
+
+        # 15 — "Shortest Route" — Par 4, 350y. Mild dogleg right. Bunker
+        # complex at the bend punishes aggressive lines.
+        _h(15, 4, 350, (15, 33), (33, 3),
+           [(18, 32, 11, 21), (3, 20, 25, 38)],
+           [('bunker', 16, 20, 20, 25),
+            ('trees', 5, 20, 38, 43),
+            ('bunker', 4, 7, 25, 30)]),
+
+        # 16 — "The Carry" — Par 4, 365y. A wide water ribbon cuts the
+        # fairway around 200 yards out. There's no way around — only over.
+        # Plan the tee shot to leave a comfortable carry distance.
+        _h(16, 4, 365, (23, 33), (23, 3),
+           [(20, 32, 16, 30), (5, 14, 17, 29)],
+           [('water', 15, 19, 2, 45),
+            ('bunker', 5, 8, 14, 17),
+            ('bunker', 5, 8, 29, 32)]),
+
+        # 17 — "The Quarry" — Par 3, 175y. No water. Green is completely
+        # ringed by sand. Precision shot demanded.
+        _h(17, 3, 175, (23, 26), (23, 8),
+           [(10, 25, 20, 26)],
+           [('bunker', 3, 6, 14, 18),
+            ('bunker', 3, 6, 28, 32),
+            ('bunker', 10, 12, 19, 27)]),
+
+        # 18 — "The Amphitheatre" — Par 5, 540y. Monumental three-stage
+        # closer. Water short-left of the green, bunkers guard the right.
+        # Reachable in two by the brave — a potential eagle finish.
+        _h(18, 5, 540, (8, 33), (40, 3),
+           [(22, 32, 5, 16), (10, 22, 14, 32), (3, 12, 28, 43)],
+           [('water', 4, 10, 28, 34),
+            ('bunker', 3, 6, 40, 44),
+            ('bunker', 12, 16, 30, 35),
+            ('trees', 3, 30, 2, 4),
+            ('trees', 22, 32, 44, 45)]),
+    ]
+    return Course(name="Hollowcrest Downs", holes=holes)
+
+
+# ═════════════════════════════════════════════════════════════════════════════
 # Public API
 # ═════════════════════════════════════════════════════════════════════════════
 
-def get_courses_for_tour_id(tour_id: str) -> list:
+def python_courses_for_tour(tour_id: str) -> list:
+    """Fallback pool of Python-built courses. Use tours_data.get_courses_for_tour
+    from gameplay code instead of this directly."""
     from src.data.courses_data import make_greenfields_course
     _MAP = {
-        "amateur":     [make_greenfields_course, make_riverside_meadows],
+        "amateur":     [make_greenfields_course, make_riverside_meadows,
+                        make_hollowcrest_downs],
         "challenger":  [make_coastal_pines, make_lakewood_links],
         "development": [make_heathland_park, make_moorside_open],
         "continental": [make_royal_highlands, make_westgate_classic],

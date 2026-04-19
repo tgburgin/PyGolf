@@ -24,8 +24,8 @@ C_BTN_HOV   = ( 60, 160,  60)
 C_PLAYER_BG = ( 20,  55,  20)
 C_PLAYER_BD = ( 60, 160,  60)
 
-SCREEN_W = 1280
-SCREEN_H = 720
+from src.constants import SCREEN_W, SCREEN_H
+
 ROW_H    = 26
 
 

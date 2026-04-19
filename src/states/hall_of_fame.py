@@ -13,9 +13,7 @@ from src.career.majors   import MAJORS, MAJOR_ORDER
 from src.career.rankings import rank_label
 from src.golf.club       import CLUB_SETS
 from src.career.tournament import TOUR_DISPLAY_NAMES
-
-SCREEN_W = 1280
-SCREEN_H  = 720
+from src.constants        import SCREEN_W, SCREEN_H
 
 C_BG      = (  5,  10,   5)
 C_GOLD    = (255, 215,  50)

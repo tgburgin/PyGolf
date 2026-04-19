@@ -42,10 +42,10 @@ import pygame
 from collections import deque
 from copy import deepcopy
 
-from src.golf.terrain import Terrain, TERRAIN_PROPS, CHAR_TO_TERRAIN
+from src.constants        import SOURCE_TILE
+from src.golf.terrain      import Terrain, TERRAIN_PROPS, CHAR_TO_TERRAIN
 from tools.editor.auto_derive import derive as _auto_derive
 
-SOURCE_TILE        = 16
 BASE_TILE          = 16
 
 ZOOM_LEVELS        = [0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0, 8.0]

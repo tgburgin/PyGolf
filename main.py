@@ -5,12 +5,9 @@ Run this file to start the game: python main.py
 
 import pygame
 import sys
-from src.game import Game
 
-# Window dimensions
-SCREEN_WIDTH = 1280
-SCREEN_HEIGHT = 720
-FPS = 60
+from src.constants import SCREEN_W, SCREEN_H, FPS
+from src.game import Game
 
 
 def main():
@@ -18,7 +15,7 @@ def main():
     pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
     pygame.display.set_caption("Let's Golf!")
 
-    screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+    screen = pygame.display.set_mode((SCREEN_W, SCREEN_H))
     clock  = pygame.time.Clock()
 
     # Pre-build all synthetic sounds (< 0.5 s; happens before the first frame)

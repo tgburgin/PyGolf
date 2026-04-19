@@ -18,7 +18,7 @@ import random
 import pygame
 
 from src.golf.ball     import Ball, BallState
-from src.golf.shot     import ShotController, ShotState
+from src.golf.shot     import ShotController, ShotState, AIM_CLICK_RADIUS
 from src.golf.terrain  import Terrain, TERRAIN_PROPS
 from src.golf.club     import STARTER_BAG
 from src.course.renderer import CourseRenderer
@@ -41,8 +41,8 @@ _ROLL_FRAC = {
     Terrain.GREEN:      0.08,
     Terrain.WATER:      0.0,
 }
-SCREEN_W   = 1280
-SCREEN_H   = 720
+
+from src.constants import SCREEN_W, SCREEN_H
 
 # ── Colours ───────────────────────────────────────────────────────────────────
 C_WHITE      = (255, 255, 255)
@@ -54,14 +54,19 @@ C_YELLOW     = (255, 220,   0)
 class GolfRoundState:
     """Plays a single hole within a full round."""
 
-    def __init__(self, game, course, hole_index, scores=None):
+    def __init__(self, game, course, hole_index, scores=None,
+                 resume_state: dict | None = None):
         """
         Parameters
         ----------
-        game        : Game — the main game object (used for state transitions)
-        course      : Course — the 18-hole course being played
-        hole_index  : int — 0-based index of the hole to play (0..17)
-        scores      : list[int] — stroke totals already recorded (holes 0..hole_index-1)
+        game         : Game — the main game object (used for state transitions)
+        course       : Course — the 18-hole course being played
+        hole_index   : int — 0-based index of the hole to play (0..17)
+        scores       : list[int] — stroke totals already recorded
+        resume_state : dict | None — mid-hole state to restore (ball pos,
+                       strokes, wind). See `_collect_round_state()` for the
+                       schema. When present, overrides the normal fresh-hole
+                       initialisation after the hole is built.
         """
         self.game        = game
         self.course      = course
@@ -124,6 +129,23 @@ class GolfRoundState:
 
         self._auto_select_club()
 
+        # Apply resume state if one was provided (from a mid-round save).
+        # Applied after _auto_select_club so the club index we restore wins.
+        if resume_state is not None:
+            self._apply_resume_state(resume_state)
+
+        # Pause overlay (ESC) state.
+        self._paused = False
+        self._pause_hover = None   # "resume" or "quit"
+
+        # Show a one-time tutorial modal on the player's very first round.
+        # Gated by Player.tutorial_seen so it only fires once per career.
+        self._show_tutorial = (
+            game.player is not None
+            and not getattr(game.player, "tutorial_seen", False)
+            and hole_index == 0
+        )
+
     # ── Properties ───────────────────────────────────────────────────────────
 
     @property
@@ -147,10 +169,12 @@ class GolfRoundState:
     def _effective_club(self):
         """Return a Club copy with stats scaled by player attributes + staff bonuses."""
         from src.golf.club import Club
+        from src.golf.ball_types import get_ball
         club   = self.current_club
         player = self.game.player
         if player is None:
             return club
+        ball = get_ball(getattr(player, "ball_type", "range"))
 
         def eff(key):
             return player.stats.get(key, 50) + player.staff_stat_bonus(key)
@@ -165,8 +189,15 @@ class GolfRoundState:
         else:
             acc_bonus = (eff("accuracy") - 50) / 500.0
 
-        new_dist = club.max_distance_yards * power_mult
-        new_acc  = club.accuracy + acc_bonus
+        # Ball effects: distance multiplier + club-class accuracy add-ons
+        new_dist = club.max_distance_yards * power_mult * ball["dist_mult"]
+        if club.name == "Putter":
+            ball_acc = ball["putt_acc_add"]
+        elif club.name in ("Pitching Wedge", "Sand Wedge"):
+            ball_acc = ball["short_acc_add"]
+        else:
+            ball_acc = ball["acc_add"]
+        new_acc  = club.accuracy + acc_bonus + ball_acc
 
         # B2-6: Fitness → late-round fatigue (kicks in after hole 12)
         if self.hole_index >= 12:
@@ -187,11 +218,30 @@ class GolfRoundState:
             except Exception:
                 pass
 
-        return Club(club.name, new_dist, min(0.99, new_acc), club.can_shape)
+        effective = Club(club.name, new_dist, min(0.99, new_acc), club.can_shape)
+        effective.shape_mult = ball["shape_mult"]
+        return effective
 
     # ── Event handling ────────────────────────────────────────────────────────
 
     def handle_event(self, event):
+        # Tutorial modal eats the first input on a new career's first round.
+        if self._show_tutorial:
+            if event.type in (pygame.MOUSEBUTTONDOWN, pygame.KEYDOWN):
+                self._dismiss_tutorial()
+            return
+
+        # Pause overlay — ESC toggles, clicks on its buttons act.
+        if self._paused:
+            self._handle_pause_event(event)
+            return
+
+        if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+            # Cancel any in-progress aim and open the pause menu.
+            self.shot_ctrl.cancel()
+            self._paused = True
+            return
+
         if self.hole_complete:
             # After delay, any input moves to the next hole
             if (self.complete_timer > 1.2 and
@@ -299,6 +349,11 @@ class GolfRoundState:
         from src.utils.sound_manager import SoundManager
         SoundManager.instance().update(dt)
 
+        # Freeze simulation while paused — flag/ambient still tick, but the
+        # ball, camera, and message timers stay still until the player resumes.
+        if self._paused:
+            return
+
         if self.hole_complete:
             self.complete_timer += dt
             return
@@ -376,8 +431,22 @@ class GolfRoundState:
             self._auto_select_club()
         else:
             # Initial shot — reset controller and send ball bouncing back
+            self._show_message(self._trees_toast_text(), 2.4)
             self.shot_ctrl.on_ball_landed()
             self._do_tree_bounce()
+
+    def _trees_toast_text(self) -> str:
+        """Pick between 'Out of bounds' and 'In the trees' based on where the
+        ball stopped relative to the hole grid. The edge rows/cols are treated
+        as OOB — they are the tree wall that borders the course.
+        """
+        col = int(self.ball.x // self.tile_sz)
+        row = int(self.ball.y // self.tile_sz)
+        edge_margin = 2
+        near_edge = (
+            col < edge_margin or col >= self.hole.cols - edge_margin or
+            row < edge_margin or row >= self.hole.rows - edge_margin)
+        return "Out of bounds — dropped back" if near_edge else "In the trees — bounced out"
 
     def _do_tree_bounce(self):
         """Launch the ball back from the trees toward safe ground."""
@@ -451,6 +520,7 @@ class GolfRoundState:
 
         # Trees: mid-flight check should catch this first, but handle as fallback
         if terrain == Terrain.TREES:
+            self._show_message(self._trees_toast_text(), 2.4)
             self._do_tree_bounce()
             return
 
@@ -460,6 +530,10 @@ class GolfRoundState:
             self._show_message("Water hazard! +1 penalty stroke", 2.8)
             drop_x, drop_y = self._water_drop_pos()
             self.ball.place(drop_x, drop_y)
+        elif terrain == Terrain.DEEP_ROUGH:
+            self._show_message("Deep rough — tough lie", 1.8)
+        elif terrain == Terrain.BUNKER:
+            self._show_message("In the bunker", 1.6)
 
         self._auto_select_club()
 
@@ -481,18 +555,27 @@ class GolfRoundState:
 
     def _auto_select_club(self):
         terrain = self._ball_terrain()
+        prev_idx = getattr(self, "club_idx", None)
 
-        if terrain == Terrain.GREEN:
+        def _pick(name: str) -> bool:
             for i, c in enumerate(self.clubs):
-                if c.name == "Putter":
+                if c.name == name:
+                    # Give a quick toast the first time we auto-switch so the
+                    # player notices the club in the HUD changed. Skip it if
+                    # another toast (e.g. "In the bunker") is already on
+                    # screen — too many stacked messages is more confusing
+                    # than helpful.
+                    if prev_idx != i and self.message_timer <= 0.4:
+                        self._show_message(f"{name} auto-selected", 1.2)
                     self.club_idx = i
-                    return
+                    return True
+            return False
 
-        if terrain == Terrain.BUNKER:
-            for i, c in enumerate(self.clubs):
-                if c.name == "Sand Wedge":
-                    self.club_idx = i
-                    return
+        if terrain == Terrain.GREEN and _pick("Putter"):
+            return
+
+        if terrain == Terrain.BUNKER and _pick("Sand Wedge"):
+            return
 
         pin_wx, pin_wy = self._pin_world_pos()
         dist_px = math.sqrt((self.ball.x - pin_wx) ** 2 +
@@ -558,6 +641,22 @@ class GolfRoundState:
         self.renderer.draw_animated_elements(
             surface, int(self.cam_x), int(self.cam_y), self._flag_time)
 
+        # Faint click-zone ring around the ball while idle, to teach the click radius.
+        if (self.shot_ctrl.state == ShotState.IDLE
+                and self.ball.state == BallState.AT_REST
+                and not self.hole_complete):
+            bsx, bsy = self._ball_screen_pos()
+            if 0 <= bsx <= VIEWPORT_W and 0 <= bsy <= VIEWPORT_H:
+                ring = pygame.Surface((AIM_CLICK_RADIUS * 2 + 4,
+                                       AIM_CLICK_RADIUS * 2 + 4),
+                                      pygame.SRCALPHA)
+                pygame.draw.circle(
+                    ring, (255, 255, 255, 55),
+                    (AIM_CLICK_RADIUS + 2, AIM_CLICK_RADIUS + 2),
+                    AIM_CLICK_RADIUS, 1)
+                surface.blit(ring, (bsx - AIM_CLICK_RADIUS - 2,
+                                    bsy - AIM_CLICK_RADIUS - 2))
+
         aim = self.shot_ctrl.get_aim_line(self._ball_screen_pos())
         if aim:
             self._draw_aim_arrow(surface, *aim)
@@ -573,7 +672,8 @@ class GolfRoundState:
         self.hud.draw(surface, self.hole, self.strokes,
                       self.current_club, self.shot_ctrl, terrain_name,
                       renderer=self.renderer, ball_world_pos=self.ball.pos,
-                      wind_angle=self.wind_angle, wind_strength=self.wind_strength)
+                      wind_angle=self.wind_angle, wind_strength=self.wind_strength,
+                      ball_id=getattr(self.game.player, "ball_type", None))
 
         if self.message and self.message_timer > 0:
             self._draw_message(surface)
@@ -581,19 +681,232 @@ class GolfRoundState:
         if self.hole_complete:
             self._draw_complete_overlay(surface)
 
+        if self._show_tutorial:
+            self._draw_tutorial_overlay(surface)
+
+        if self._paused:
+            self._draw_pause_overlay(surface)
+
+    def _dismiss_tutorial(self):
+        self._show_tutorial = False
+        if self.game.player is not None:
+            self.game.player.tutorial_seen = True
+
+    def _draw_tutorial_overlay(self, surface):
+        # Dim the course; leave the HUD visible so players can see what the
+        # text refers to.
+        dim = pygame.Surface((VIEWPORT_W, VIEWPORT_H), pygame.SRCALPHA)
+        dim.fill((0, 0, 0, 170))
+        surface.blit(dim, (0, 0))
+
+        pw, ph = 560, 340
+        px = (VIEWPORT_W - pw) // 2
+        py = (VIEWPORT_H - ph) // 2
+        panel = pygame.Rect(px, py, pw, ph)
+        pygame.draw.rect(surface, (14, 22, 14), panel, border_radius=12)
+        pygame.draw.rect(surface, (58, 98, 58), panel, 2, border_radius=12)
+
+        font_title = pygame.font.SysFont("arial", 30, bold=True)
+        font_line  = pygame.font.SysFont("arial", 20)
+        font_hint  = pygame.font.SysFont("arial", 16)
+
+        title = font_title.render("How to play", True, (168, 224, 88))
+        surface.blit(title, (panel.centerx - title.get_width() // 2, panel.y + 22))
+
+        lines = [
+            "1.  Left-click near the ball to start aiming.",
+            "2.  Drag away from the ball — distance = power, direction = aim.",
+            "3.  Release to take the shot.  Right-click cancels.",
+            "",
+            "Scroll wheel / arrow keys change clubs.",
+            "The putter is auto-selected on the green.",
+            "Wind, lie and club stats are shown in the HUD on the right.",
+        ]
+        ly = panel.y + 78
+        for text in lines:
+            if text:
+                s = font_line.render(text, True, (230, 230, 230))
+                surface.blit(s, (panel.x + 32, ly))
+            ly += 30
+
+        hint = font_hint.render("Click anywhere to continue.", True, (180, 200, 160))
+        surface.blit(hint, (panel.centerx - hint.get_width() // 2,
+                            panel.bottom - 34))
+
+    # ── Pause / resume ────────────────────────────────────────────────────────
+
+    def _pause_rects(self):
+        pw, ph = 420, 290
+        px = (VIEWPORT_W - pw) // 2
+        py = (VIEWPORT_H - ph) // 2
+        panel = pygame.Rect(px, py, pw, ph)
+        bw, bh = 260, 44
+        resume = pygame.Rect(panel.centerx - bw // 2, panel.y + 90,  bw, bh)
+        audio  = pygame.Rect(panel.centerx - bw // 2, panel.y + 150, bw, bh)
+        quit_  = pygame.Rect(panel.centerx - bw // 2, panel.y + 210, bw, bh)
+        return panel, resume, audio, quit_
+
+    def _audio_settings(self):
+        """Lazily-built shared audio-settings panel for the pause menu."""
+        if not hasattr(self, "_audio_panel"):
+            from src.ui.audio_settings import AudioSettingsPanel
+            self._audio_panel = AudioSettingsPanel(SCREEN_W, SCREEN_H)
+        return self._audio_panel
+
+    def _handle_pause_event(self, event):
+        # Audio settings panel eats input while open.
+        if self._audio_settings().visible:
+            self._audio_settings().handle_event(event)
+            return
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_ESCAPE:
+                self._paused = False
+            return
+        _, resume, audio, quit_ = self._pause_rects()
+        if event.type == pygame.MOUSEMOTION:
+            p = event.pos
+            self._pause_hover = (
+                "resume" if resume.collidepoint(p) else
+                "audio"  if audio.collidepoint(p)  else
+                "quit"   if quit_.collidepoint(p)  else
+                None)
+        elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            p = event.pos
+            if resume.collidepoint(p):
+                self._paused = False
+            elif audio.collidepoint(p):
+                self._audio_settings().open()
+            elif quit_.collidepoint(p):
+                self._save_and_quit_to_menu()
+
+    def _save_and_quit_to_menu(self):
+        """Persist the in-progress round and return to the main menu."""
+        try:
+            from src.utils.save_system import save_game
+            save_game(self.game.player,
+                      self.game.current_tournament,
+                      round_state=self._collect_round_state())
+        except Exception as e:
+            print(f"Mid-round save failed: {e}")
+        from src.states.main_menu import MainMenuState
+        self.game.change_state(MainMenuState(self.game))
+
+    def _collect_round_state(self) -> dict:
+        """Snapshot everything needed to resume this hole mid-round."""
+        return {
+            "hole_index":    self.hole_index,
+            "strokes":       self.strokes,
+            "scores":        list(self.scores),
+            "ball_x":        float(self.ball.x),
+            "ball_y":        float(self.ball.y),
+            "wind_angle":    float(self.wind_angle),
+            "wind_strength": int(self.wind_strength),
+            "last_safe_x":   float(self._last_safe_x),
+            "last_safe_y":   float(self._last_safe_y),
+            "club_idx":      int(self.club_idx),
+        }
+
+    def _apply_resume_state(self, s: dict) -> None:
+        """Restore the mid-hole state captured by `_collect_round_state`."""
+        self.strokes       = int(s.get("strokes", 0))
+        self.scores        = list(s.get("scores", self.scores))
+        bx = s.get("ball_x")
+        by = s.get("ball_y")
+        if bx is not None and by is not None:
+            self.ball.place(float(bx), float(by))
+        self.wind_angle    = float(s.get("wind_angle", self.wind_angle))
+        self.wind_strength = int(s.get("wind_strength", self.wind_strength))
+        self._last_safe_x  = float(s.get("last_safe_x", self.ball.x))
+        self._last_safe_y  = float(s.get("last_safe_y", self.ball.y))
+        ci = int(s.get("club_idx", self.club_idx))
+        if 0 <= ci < len(self.clubs):
+            self.club_idx = ci
+        # Recentre camera on the restored ball position.
+        self.cam_x = self.ball.x - VIEWPORT_W / 2
+        self.cam_y = self.ball.y - VIEWPORT_H / 2
+        self._clamp_camera()
+
+    def _draw_pause_overlay(self, surface):
+        dim = pygame.Surface((VIEWPORT_W, VIEWPORT_H), pygame.SRCALPHA)
+        dim.fill((0, 0, 0, 180))
+        surface.blit(dim, (0, 0))
+
+        panel, resume, audio, quit_ = self._pause_rects()
+        pygame.draw.rect(surface, (14, 22, 14), panel, border_radius=12)
+        pygame.draw.rect(surface, (58, 98, 58), panel, 2, border_radius=12)
+
+        title_font = pygame.font.SysFont("arial", 28, bold=True)
+        body_font  = pygame.font.SysFont("arial", 18)
+        btn_font   = pygame.font.SysFont("arial", 20, bold=True)
+
+        title = title_font.render("Paused", True, (168, 224, 88))
+        surface.blit(title, (panel.centerx - title.get_width() // 2, panel.y + 22))
+
+        hint1 = body_font.render("Save & Quit returns to the main menu.", True, (190, 200, 180))
+        hint2 = body_font.render("Load this save to continue.",            True, (190, 200, 180))
+        surface.blit(hint1, (panel.centerx - hint1.get_width() // 2, panel.y + 56))
+        surface.blit(hint2, (panel.centerx - hint2.get_width() // 2, panel.y + 74))
+
+        for rect, key, label in [(resume, "resume", "Resume (Esc)"),
+                                 (audio,  "audio",  "Audio Settings"),
+                                 (quit_,  "quit",   "Save & Quit to Menu")]:
+            hov = (self._pause_hover == key)
+            bg  = (48, 120, 48) if hov else (28, 78, 28)
+            pygame.draw.rect(surface, bg, rect, border_radius=7)
+            pygame.draw.rect(surface, (58, 98, 58), rect, 2, border_radius=7)
+            lbl = btn_font.render(label, True, (255, 255, 255))
+            surface.blit(lbl, lbl.get_rect(center=rect.center))
+
+        # Render the audio panel on top if it's open.
+        if hasattr(self, "_audio_panel") and self._audio_panel.visible:
+            self._audio_panel.draw(surface)
+
     def _draw_aim_arrow(self, surface, start, end, power):
+        from src.golf.shot import ShotShape, SHAPE_CURVE_FRACTION
         r = int(min(255, power * 2 * 255))
         g = int(min(255, (1.0 - power) * 2 * 255))
         color = (r, g, 0)
 
         sx, sy = int(start[0]), int(start[1])
         ex, ey = int(end[0]),   int(end[1])
-        pygame.draw.line(surface, color, (sx, sy), (ex, ey), 3)
 
         dx, dy = ex - sx, ey - sy
         mag = math.sqrt(dx * dx + dy * dy)
-        if mag > 0:
-            ndx, ndy = dx / mag, dy / mag
+
+        # If the player has a non-straight shot shape and the club allows
+        # shaping, draw a quadratic-bezier aim line that previews the curve.
+        shape = self.shot_ctrl.shot_shape
+        can_shape = self.current_club.can_shape
+        if (mag > 0 and can_shape
+                and shape in (ShotShape.DRAW, ShotShape.FADE)):
+            # Perpendicular offset matches the in-flight shape maths in shot.py:
+            # DRAW curves to the left (perp = (-dy, dx)/mag, negated),
+            # FADE curves to the right.
+            sign = -1.0 if shape == ShotShape.DRAW else 1.0
+            perp_x = -dy / mag
+            perp_y =  dx / mag
+            control_offset = mag * SHAPE_CURVE_FRACTION * sign
+            cx = (sx + ex) / 2 + perp_x * control_offset
+            cy = (sy + ey) / 2 + perp_y * control_offset
+            # Sample the bezier at 16 segments.
+            prev = (sx, sy)
+            for i in range(1, 17):
+                t = i / 16.0
+                u = 1.0 - t
+                x = int(u * u * sx + 2 * u * t * cx + t * t * ex)
+                y = int(u * u * sy + 2 * u * t * cy + t * t * ey)
+                pygame.draw.line(surface, color, prev, (x, y), 3)
+                prev = (x, y)
+            # Arrow-head tangent at t=1: derivative 2*(1-t)*(cp-p0)+2*t*(p1-cp)
+            # at t=1 that's 2*(p1-cp).
+            tx, ty = (ex - cx), (ey - cy)
+        else:
+            pygame.draw.line(surface, color, (sx, sy), (ex, ey), 3)
+            tx, ty = dx, dy
+
+        tmag = math.sqrt(tx * tx + ty * ty)
+        if tmag > 0:
+            ndx, ndy = tx / tmag, ty / tmag
             size = 12
             tip   = (ex, ey)
             left  = (int(ex - ndx * size + ndy * 5), int(ey - ndy * size - ndx * 5))

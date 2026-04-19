@@ -12,13 +12,12 @@ Tabs
 import pygame
 
 from src.golf.club        import CLUB_SETS, CLUB_SET_ORDER
+from src.golf.ball_types  import BALL_TYPES, BALL_ORDER, effect_summary as ball_effect_summary
 from src.career.player    import STAT_KEYS, BASE_STAT, MAX_STAT, ACHIEVEMENTS
 from src.career.tournament import TOUR_DISPLAY_NAMES, EVENTS_PER_SEASON
 from src.career.staff      import STAFF_TYPES, STAFF_ORDER
 from src.career.sponsorship import get_available_sponsors, is_target_met, progress_label
-
-SCREEN_W = 1280
-SCREEN_H  = 720
+from src.constants          import SCREEN_W, SCREEN_H
 
 CONTENT_X  = 15
 CONTENT_Y  = 106   # below tab bar
@@ -37,7 +36,7 @@ C_GOLD       = (210, 170,  30)
 C_RED        = (200,  50,  50)
 C_BTN        = ( 28,  75,  28)
 C_BTN_HOV    = ( 50, 120,  50)
-C_BTN_DIS    = ( 35,  45,  35)
+C_BTN_DIS    = ( 60,  52,  42)   # warm desaturated — distinct from active greens
 C_BTN_PLAY   = ( 20,  88,  20)
 C_BTN_PLAY_H = ( 40, 140,  40)
 C_BTN_RED    = ( 78,  28,  28)
@@ -88,6 +87,10 @@ class CareerHubState:
         self._build_tab1_rects()
         self._build_tab2_rects()
 
+        # Losing-streak nudge: if the last three rounds were all well over par,
+        # point the player at their weakest stat. Shown once per hub entry.
+        self._maybe_flash_losing_streak()
+
     # ── Layout builders ───────────────────────────────────────────────────────
 
     def _build_tab_rects(self):
@@ -115,15 +118,25 @@ class CareerHubState:
             self._train_btns.append((key, r))
             btn_y += 76
 
-        # Equipment panel (right)
+        # Equipment panel (right): clubs (compact) + balls stacked below
         self._equip_panel = pygame.Rect(SCREEN_W - CONTENT_X - 390, ty, 390, CONTENT_H)
         self._equip_btns: list[tuple[str, pygame.Rect]] = []
-        ey = ty + 46
+        ey = ty + 40
         for set_name in CLUB_SET_ORDER[1:]:
             ex = self._equip_panel.x
-            r  = pygame.Rect(ex + 295, ey + 2, 84, 26)
+            r  = pygame.Rect(ex + 295, ey + 4, 84, 24)
             self._equip_btns.append((set_name, r))
-            ey += 76
+            ey += 48
+
+        # Balls section starts after clubs + small header gap
+        self._balls_section_y = ey + 24
+        self._ball_btns: list[tuple[str, pygame.Rect]] = []
+        by = self._balls_section_y + 22
+        for ball_id in BALL_ORDER:
+            ex = self._equip_panel.x
+            r  = pygame.Rect(ex + 295, by + 4, 84, 24)
+            self._ball_btns.append((ball_id, r))
+            by += 34
 
         # Event info panel (centre)
         cx = CONTENT_X + 390 + 10
@@ -175,6 +188,10 @@ class CareerHubState:
                 self._do_train(hit[6:])
             elif hit.startswith("buy:"):
                 self._do_buy(hit[4:])
+            elif hit.startswith("ball_buy:"):
+                self._do_ball_buy(hit[len("ball_buy:"):])
+            elif hit.startswith("ball_select:"):
+                self._do_ball_select(hit[len("ball_select:"):])
             elif hit.startswith("hire:"):
                 self._do_hire(hit[5:])
             elif hit.startswith("fire:"):
@@ -204,6 +221,10 @@ class CareerHubState:
             for sn, r in self._equip_btns:
                 if r.collidepoint(pos):
                     return f"buy:{sn}"
+            for bid, r in self._ball_btns:
+                if r.collidepoint(pos):
+                    owned = bid in self.player.owned_balls
+                    return f"ball_select:{bid}" if owned else f"ball_buy:{bid}"
         elif self._tab == 1:
             for sid, r in self._staff_btn:
                 if r.collidepoint(pos):
@@ -253,6 +274,25 @@ class CareerHubState:
         p.upgrade_club_set(set_name)
         self._flash(f"Purchased {info['label']}!")
         self._pop_new_achievements()
+
+    def _do_ball_buy(self, ball_id):
+        p    = self.player
+        info = BALL_TYPES.get(ball_id)
+        if not info:
+            return
+        if info["min_tour"] > p.tour_level:
+            self._flash(f"Requires Tour Level {info['min_tour']}")
+            return
+        if p.money < info["cost"]:
+            self._flash(f"Need ${info['cost']:,} for {info['label']}")
+            return
+        if p.buy_ball(ball_id):
+            self._flash(f"Bought {info['label']}! Now in play.")
+
+    def _do_ball_select(self, ball_id):
+        info = BALL_TYPES.get(ball_id, {})
+        if self.player.select_ball(ball_id):
+            self._flash(f"Switched to {info.get('label', ball_id)}.")
 
     def _do_hire(self, sid):
         p    = self.player
@@ -312,12 +352,20 @@ class CareerHubState:
                 return
             course = random.choice(courses)
             opps   = get_opponent_pool(5)   # tougher World Tour field
+            # Seed differs per attempt so the second Q-School isn't a replay
+            # of the first — but still reproducible from the save file.
+            attempt_idx = max(0, 2 - p.qschool_attempts_remaining)
+            qs_seed = hash((p.name, p.season, "qschool", attempt_idx)) & 0xFFFFFFFF
             t = Tournament(
                 "Q-School Qualifier", 4,
                 [course.get_hole(i).par for i in range(course.total_holes)],
                 opps, is_qschool=True,
-                event_number=1, total_events=1)
+                event_number=1, total_events=1,
+                rng_seed=qs_seed,
+                course_name=course.name)
             p.qschool_pending = False
+            if p.qschool_attempts_remaining > 0:
+                p.qschool_attempts_remaining -= 1
             self.game.current_tournament = t
             self.game.change_state(GolfRoundState(self.game, course, 0, []))
             return
@@ -344,6 +392,9 @@ class CareerHubState:
 
         opps = get_opponent_pool(p.tour_level)
 
+        ev_seed = hash((p.name, p.season, p.tour_level,
+                        event_n, major_id or "")) & 0xFFFFFFFF
+
         if major_id:
             name = MAJORS[major_id]["name"]
             prize_fund = MAJORS[major_id]["prize_fund"]
@@ -351,7 +402,8 @@ class CareerHubState:
                 name, p.tour_level,
                 [course.get_hole(i).par for i in range(course.total_holes)],
                 opps, is_major=True, event_number=event_n, total_events=total,
-                major_id=major_id, major_prize_fund=prize_fund)
+                major_id=major_id, major_prize_fund=prize_fund,
+                rng_seed=ev_seed, course_name=course.name)
         else:
             _NAMES = {1: "Amateur", 2: "Challenger", 3: "Development",
                       4: "Continental", 5: "World", 6: "Grand"}
@@ -359,7 +411,8 @@ class CareerHubState:
             t = Tournament(
                 name, p.tour_level,
                 [course.get_hole(i).par for i in range(course.total_holes)],
-                opps, is_major=False, event_number=event_n, total_events=total)
+                opps, is_major=False, event_number=event_n, total_events=total,
+                rng_seed=ev_seed, course_name=course.name)
 
         self.game.current_tournament = t
         self.game.change_state(GolfRoundState(self.game, course, 0, []))
@@ -367,6 +420,30 @@ class CareerHubState:
     def _flash(self, msg: str):
         self._msg       = msg
         self._msg_timer = 3.5
+
+    def _maybe_flash_losing_streak(self) -> None:
+        """Flash a helpful nudge if the player's last three rounds were all
+        significantly over par. Picks out their weakest non-maxed stat."""
+        p = self.player
+        if p is None:
+            return
+        log = p.career_log or []
+        if len(log) < 3:
+            return
+        recent = log[-3:]
+        # "Struggling" = every recent round at least +3 over par.
+        if not all(r.get("diff", 0) >= 3 for r in recent):
+            return
+
+        # Weakest non-maxed stat.
+        pool = [(p.stats.get(k, 50), k) for k in STAT_KEYS
+                if p.stats.get(k, 50) < MAX_STAT]
+        if not pool:
+            return
+        pool.sort()
+        _, weakest = pool[0]
+        label = STAT_LABELS.get(weakest, weakest.title())
+        self._flash(f"Struggling? Training {label} would help most right now.")
 
     def _pop_new_achievements(self):
         """Collect any newly-unlocked achievements for banner display."""
@@ -407,22 +484,30 @@ class CareerHubState:
             True, (90, 160, 80))
         surface.blit(sub, (cx - sub.get_width() // 2, 44))
 
-        # Flash message
-        if self._msg_timer > 0:
-            ms = self.font_med.render(self._msg, True, C_GOLD)
-            surface.blit(ms, (cx - ms.get_width() // 2, 62))
-
         # ── Tab bar ───────────────────────────────────────────────────────────
+        recommended_tab = self._recommended_tab()
         for i, label in enumerate(TAB_LABELS):
             r = self._tab_rects[i]
             active = (i == self._tab)
             hov    = (self._hov == f"tab:{i}")
             bg = C_TAB_ACT if active else (C_TAB_HOV if hov else C_TAB)
             pygame.draw.rect(surface, bg, r, border_radius=4)
+            # Recommended (but not currently open) tab gets a gold accent
+            # underline so the player's eye is drawn to what's worth doing.
+            if recommended_tab == i and not active:
+                accent = pygame.Rect(r.x + 4, r.bottom - 3, r.width - 8, 3)
+                pygame.draw.rect(surface, C_GOLD, accent, border_radius=2)
             pygame.draw.rect(surface, C_BORDER, r, 1, border_radius=4)
-            ts = self.font_med.render(label, True,
-                                      C_WHITE if active else C_GRAY)
-            surface.blit(ts, ts.get_rect(center=r.center))
+            icon_col = C_WHITE if active else C_GRAY
+            ts = self.font_med.render(label, True, icon_col)
+            # Icon + label, group-centered together
+            icon_w, gap = 18, 6
+            total_w = icon_w + gap + ts.get_width()
+            group_x = r.centerx - total_w // 2
+            self._draw_tab_icon(surface, i,
+                                group_x, r.centery - 8, icon_col)
+            surface.blit(ts, (group_x + icon_w + gap,
+                              r.centery - ts.get_height() // 2))
 
         # Play Event button (persistent)
         bg = C_BTN_PLAY_H if self._hov == "play" else C_BTN_PLAY
@@ -442,6 +527,22 @@ class CareerHubState:
             self._draw_tab1(surface)
         elif self._tab == 2:
             self._draw_tab2(surface)
+
+        # Flash message. Drawn LAST as a rounded banner floating just inside
+        # the top of the content area so it can't collide with the tab row
+        # (an earlier 62 px y collided with the tabs starting at y=68).
+        # Transient — only visible while _msg_timer > 0.
+        if self._msg_timer > 0:
+            ms = self.font_med.render(self._msg, True, C_GOLD)
+            pad_x, pad_h = 18, 26
+            banner = pygame.Rect(
+                cx - ms.get_width() // 2 - pad_x,
+                CONTENT_Y + 4,
+                ms.get_width() + pad_x * 2,
+                pad_h)
+            pygame.draw.rect(surface, (20, 28, 18), banner, border_radius=6)
+            pygame.draw.rect(surface, C_GOLD,       banner, 1, border_radius=6)
+            surface.blit(ms, ms.get_rect(center=banner.center))
         elif self._tab == 3:
             self._draw_tab3(surface)
 
@@ -575,6 +676,16 @@ class CareerHubState:
                                         C_GOLD if p.world_rank == 1 else C_GRAY)
             surface.blit(rl, (r.x + 40, ty)); ty += 22
 
+        # Promotion requirements — surface the gate before the player hits it.
+        promo_lines = self._promotion_requirement_lines(p)
+        if promo_lines:
+            hdr = self.font_small.render("Promotion:", True, (150, 180, 120))
+            surface.blit(hdr, (r.x + 40, ty)); ty += 16
+            for text, ok in promo_lines:
+                col = C_GREEN if ok else C_GOLD
+                s = self.font_small.render("  " + text, True, col)
+                surface.blit(s, (r.x + 40, ty)); ty += 16
+
         # Active sponsor
         if p.active_sponsor:
             sp_name = p.active_sponsor["name"]
@@ -592,7 +703,7 @@ class CareerHubState:
         self._section_hdr(surface, "EQUIPMENT", r.x, r.y, r.width)
 
         cur_idx = CLUB_SET_ORDER.index(p.club_set_name)
-        ey = r.y + 46
+        ey = r.y + 40
 
         for (set_name, btn_r) in self._equip_btns:
             info    = CLUB_SETS[set_name]
@@ -610,14 +721,13 @@ class CareerHubState:
             if owned:
                 sub, sc = "Owned", C_GREEN
             elif locked:
-                sub, sc = f"Tour {info['min_tour']} required", C_RED
+                tour_name = TOUR_DISPLAY_NAMES.get(info['min_tour'], "next tour")
+                sub, sc = f"Unlocks on {tour_name} (T{info['min_tour']})", C_RED
             else:
-                sub, sc = f"${info['cost']:,}", C_GOLD if can_buy else C_GRAY
+                sub, sc = f"${info['cost']:,}  ·  {self._driver_hint(set_name)}", (
+                    C_GOLD if can_buy else C_GRAY)
             ss = self.font_small.render(sub, True, sc)
             surface.blit(ss, (r.x + 10, ey + 20))
-
-            hs = self.font_small.render(self._driver_hint(set_name), True, (75, 115, 75))
-            surface.blit(hs, (r.x + 10, ey + 36))
 
             # Buy button
             hk = f"buy:{set_name}"
@@ -630,7 +740,73 @@ class CareerHubState:
             bl = self.font_small.render(bt, True,
                                         C_GREEN if owned else C_GRAY if locked else C_WHITE)
             surface.blit(bl, bl.get_rect(center=btn_r.center))
-            ey += 76
+            ey += 48
+
+        # ── Balls section ─────────────────────────────────────────────────────
+        by = self._balls_section_y
+        pygame.draw.line(surface, C_BORDER,
+                         (r.x + 10, by - 6), (r.right - 10, by - 6), 1)
+        hdr = self.font_hdr.render("BALLS", True, C_GOLD)
+        surface.blit(hdr, (r.x + 12, by))
+        by += 22
+
+        # Current driver distance — the reference the preview is scaled from.
+        from src.golf.club import get_club_bag
+        cur_driver = next((c for c in get_club_bag(p.club_set_name)
+                           if c.name == "Driver"), None)
+        base_driver_yds = cur_driver.max_distance_yards if cur_driver else 250
+
+        for (ball_id, btn_r) in self._ball_btns:
+            info   = BALL_TYPES[ball_id]
+            owned  = ball_id in p.owned_balls
+            active = (p.ball_type == ball_id)
+            locked = info["min_tour"] > p.tour_level and not owned
+            can_buy = (not owned) and (not locked) and p.money >= info["cost"]
+
+            col = C_GOLD if active else (C_GRAY if locked else C_WHITE)
+            name_str = info["label"] + ("  [active]" if active else "")
+            ls = self.font_med.render(name_str, True, col)
+            surface.blit(ls, (r.x + 10, by))
+
+            # Preview: effective driver distance with this ball, right-aligned
+            # above the Buy/Select button. Lets the player see the concrete
+            # payoff of the trade-offs printed below.
+            preview_yds = int(round(base_driver_yds * info["dist_mult"]))
+            pv = self.font_small.render(f"~{preview_yds}y", True, (130, 190, 130))
+            surface.blit(pv, (btn_r.left - 8 - pv.get_width(), by + 2))
+
+            if owned and not active:
+                sub, sc = ball_effect_summary(ball_id), C_GRAY
+            elif active:
+                sub, sc = ball_effect_summary(ball_id), C_GREEN
+            elif locked:
+                sub, sc = f"Unlocks Tour {info['min_tour']}", C_RED
+            else:
+                sub, sc = f"${info['cost']:,}  ·  {ball_effect_summary(ball_id)}", (
+                    C_GOLD if can_buy else C_GRAY)
+            ss = self.font_small.render(sub, True, sc)
+            surface.blit(ss, (r.x + 10, by + 18))
+
+            # Buy / Select button
+            if owned:
+                hk = f"ball_select:{ball_id}"
+                if active:
+                    bg, bt, tc = C_BTN_DIS, "Active", C_GREEN
+                else:
+                    bg = C_BTN_HOV if self._hov == hk else C_BTN
+                    bt, tc = "Select", C_WHITE
+            elif locked:
+                bg, bt, tc = C_BTN_DIS, "Locked", C_GRAY
+            else:
+                hk = f"ball_buy:{ball_id}"
+                bg = (C_BTN_HOV if self._hov == hk
+                      else (C_BTN if can_buy else C_BTN_DIS))
+                bt, tc = "Buy", (C_WHITE if can_buy else C_GRAY)
+            pygame.draw.rect(surface, bg, btn_r, border_radius=4)
+            pygame.draw.rect(surface, C_BORDER, btn_r, 1, border_radius=4)
+            bl = self.font_small.render(bt, True, tc)
+            surface.blit(bl, bl.get_rect(center=btn_r.center))
+            by += 34
 
     # ── Tab 1 — Staff ─────────────────────────────────────────────────────────
 
@@ -895,6 +1071,104 @@ class CareerHubState:
                          pygame.Rect(x, y, w, 28), border_radius=6)
         ts = self.font_hdr.render(label, True, (150, 210, 120))
         surface.blit(ts, (x + 10, y + 6))
+
+    def _recommended_tab(self) -> int | None:
+        """Return the index of the tab the player would most benefit from
+        visiting, or None if nothing stands out. Used to draw a subtle
+        gold accent under the recommended tab.
+
+        Priority:
+          1. Equipment (tab 0) — an upgrade is unlocked at the current tour
+             and affordable.
+          2. Staff (tab 1) — staff available for the current tour but none hired.
+          3. Sponsors (tab 2) — no active sponsor but signing deals are offered.
+          4. None — the default next action is simply Play.
+        """
+        p = self.player
+        if p is None:
+            return None
+
+        # 1. Equipment: is there a better affordable set at this tour level?
+        cur_idx = CLUB_SET_ORDER.index(p.club_set_name)
+        for s_idx, s_name in enumerate(CLUB_SET_ORDER):
+            if s_idx <= cur_idx:
+                continue
+            info = CLUB_SETS[s_name]
+            if info["min_tour"] <= p.tour_level and p.money >= info["cost"]:
+                return 0
+
+        # 2. Staff: tour 4+ unlocks staff. Nudge if nothing hired yet and they
+        #    can afford the cheapest eligible hire.
+        if p.tour_level >= 4 and not p.hired_staff:
+            eligible = [(sid, info) for sid, info in STAFF_TYPES.items()
+                        if info["min_tour"] <= p.tour_level]
+            if eligible:
+                min_cost = min(info["hire_cost"] for _, info in eligible)
+                if p.money >= min_cost:
+                    return 1
+
+        # 3. Sponsors: tour 4+ with no active sponsor and at least one offer.
+        if p.tour_level >= 4 and p.active_sponsor is None:
+            if get_available_sponsors(p.tour_level):
+                return 2
+
+        return None
+
+    @staticmethod
+    def _promotion_requirement_lines(p) -> list[tuple[str, bool]]:
+        """Human-readable list of requirements for promotion off the current tour.
+
+        Each entry is (line, satisfied). Returns [] for tours with no gate
+        beyond finishing the season (Tour 6, or when already qualified).
+        """
+        from src.career.tournament import PROMOTION_THRESHOLD
+        lvl = p.tour_level
+        threshold = PROMOTION_THRESHOLD.get(lvl)
+        if threshold is None:
+            return []
+
+        if lvl == 4:
+            if p.qschool_pending:
+                attempts = max(1, p.qschool_attempts_remaining or 1)
+                return [(f"Q-School qualified — "
+                         f"{attempts} attempt{'s' if attempts != 1 else ''} ready", True)]
+            return [(f"Finish top {threshold} to earn Q-School", False)]
+
+        if lvl == 5:
+            rank_ok = p.world_rank <= 50
+            rank_line = (f"World Rank ≤ 50  (You: #{p.world_rank})"
+                         if p.world_rank < 201
+                         else "World Rank ≤ 50  (unranked)")
+            return [
+                (f"Finish top {threshold} in the season", False),
+                (rank_line, rank_ok),
+            ]
+
+        return [(f"Finish top {threshold} in the season", False)]
+
+    def _draw_tab_icon(self, surface, tab_idx: int, x: int, y: int, col):
+        """Tiny pixel-art glyph per tab: equipment, staff, sponsor, stats."""
+        if tab_idx == 0:
+            # Club crossed with dumbbell — "training + equipment"
+            pygame.draw.line(surface, col, (x + 2, y + 14), (x + 14, y + 2), 2)
+            pygame.draw.circle(surface, col, (x + 14, y + 2),  2)
+            pygame.draw.rect(surface, col, (x + 1, y + 12, 4, 4))
+        elif tab_idx == 1:
+            # Person icon — "staff"
+            pygame.draw.circle(surface, col, (x + 8, y + 4), 3)
+            pygame.draw.rect(surface, col, (x + 3, y + 9, 11, 6), border_radius=2)
+        elif tab_idx == 2:
+            # Dollar sign — "sponsors"
+            pygame.draw.line(surface, col, (x + 8, y + 1), (x + 8, y + 15), 2)
+            pygame.draw.arc(surface, col, (x + 2, y + 2, 12, 6), 0.4, 3.5, 2)
+            pygame.draw.arc(surface, col, (x + 2, y + 8, 12, 6), -2.7, 0.7, 2)
+        elif tab_idx == 3:
+            # Trophy — "career stats"
+            pygame.draw.rect(surface, col, (x + 4, y + 2, 8, 7))
+            pygame.draw.line(surface, col, (x + 4, y + 5), (x + 1, y + 5), 2)
+            pygame.draw.line(surface, col, (x + 12, y + 5), (x + 15, y + 5), 2)
+            pygame.draw.rect(surface, col, (x + 6, y + 9, 4, 3))
+            pygame.draw.rect(surface, col, (x + 3, y + 12, 10, 2))
 
     @staticmethod
     def _driver_hint(set_name: str) -> str:

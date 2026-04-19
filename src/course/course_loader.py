@@ -17,8 +17,11 @@ import pygame
 from src.course.course import Course
 from src.course.hole   import Hole
 
-# Must match tools/editor/canvas.py SOURCE_TILE
-_SOURCE_TILE = 16
+from src.constants import SOURCE_TILE as _SOURCE_TILE   # noqa: F401
+
+
+class CourseValidationError(ValueError):
+    """Raised when a course JSON is structurally invalid."""
 
 
 def load_course(path: str) -> Course:
@@ -28,9 +31,15 @@ def load_course(path: str) -> Course:
     Tileset PNGs referenced in the file are loaded automatically.
     Missing tileset files are silently skipped — the renderer falls back
     to procedural textures for those tiles.
+
+    Raises CourseValidationError if the file is structurally invalid
+    (missing logic layer, tee/pin outside the grid, no tee or no green,
+    or ground/logic dimension mismatch).
     """
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
+
+    validate_course(data, source=path)
 
     course_meta = data.get("course", {})
     name = course_meta.get("name", "Unnamed Course")
@@ -40,6 +49,64 @@ def load_course(path: str) -> Course:
 
     holes = [_build_hole(h, tilesets, transparent_ids) for h in data.get("holes", [])]
     return Course(name=name, holes=holes)
+
+
+def validate_course(data: dict, source: str = "<dict>") -> None:
+    """Raise CourseValidationError with a clear message if the course is malformed.
+
+    Checks applied to every hole:
+      - a logic layer (or legacy 'attributes' layer) exists
+      - the logic grid has the declared row count and every row has the
+        declared column count
+      - if a ground layer is present, its dimensions match the logic layer
+      - tee and pin coordinates are inside the grid
+      - the logic grid contains at least one tee ('X') and one green ('G')
+    """
+    holes = data.get("holes", [])
+    if not holes:
+        raise CourseValidationError(f"{source}: course contains no holes")
+
+    for idx, h in enumerate(holes, start=1):
+        number = h.get("number", idx)
+        rows = int(h.get("grid_rows", 36))
+        cols = int(h.get("grid_cols", 48))
+        raw_logic  = h.get("logic") or h.get("attributes")
+        raw_ground = h.get("ground") or h.get("visual")
+
+        def err(msg: str):
+            raise CourseValidationError(f"{source}: hole {number}: {msg}")
+
+        if raw_logic is None:
+            err("missing logic layer (no 'logic' or 'attributes' key)")
+        if len(raw_logic) != rows:
+            err(f"logic layer has {len(raw_logic)} rows, expected {rows}")
+        for ri, row in enumerate(raw_logic):
+            if len(row) != cols:
+                err(f"logic row {ri} has {len(row)} cols, expected {cols}")
+
+        if raw_ground is not None:
+            if len(raw_ground) != rows:
+                err(f"ground layer rows {len(raw_ground)} != logic rows {rows}")
+            for ri, row in enumerate(raw_ground):
+                if len(row) != cols:
+                    err(f"ground row {ri} has {len(row)} cols, expected {cols}")
+
+        tee = h.get("tee")
+        pin = h.get("pin")
+        if tee is not None:
+            tc, tr = tee
+            if not (0 <= tc < cols and 0 <= tr < rows):
+                err(f"tee {tee} is outside the {cols}x{rows} grid")
+        if pin is not None:
+            pc, pr = pin
+            if not (0 <= pc < cols and 0 <= pr < rows):
+                err(f"pin {pin} is outside the {cols}x{rows} grid")
+
+        flat = "".join(str(c) for row in raw_logic for c in row)
+        if "X" not in flat:
+            err("logic grid has no tee tile ('X')")
+        if "G" not in flat:
+            err("logic grid has no green tile ('G')")
 
 
 # ── Internal helpers ──────────────────────────────────────────────────────────

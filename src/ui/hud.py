@@ -74,7 +74,8 @@ class HUD:
     # ── Draw ──────────────────────────────────────────────────────────────────
 
     def draw(self, surface, hole, strokes, club, shot_ctrl, terrain_name,
-             renderer=None, ball_world_pos=None, wind_angle=0.0, wind_strength=0):
+             renderer=None, ball_world_pos=None, wind_angle=0.0, wind_strength=0,
+             ball_id=None):
         """
         Draw the complete HUD panel.
 
@@ -129,6 +130,11 @@ class HUD:
         y = 188
         self._text(surface, "Club", self.font_small, C_LIGHT_GRAY, x, y)
 
+        # Active ball pill (right-aligned, same row as the "Club" label)
+        if ball_id is not None:
+            self._draw_ball_pill(surface, ball_id,
+                                 self.panel_x + PANEL_WIDTH - 14, y - 2)
+
         # Prev / Next arrows
         self._draw_button(surface, self.btn_prev_club, "<", C_DARK_GRAY, C_OFF_WHITE)
         self._draw_button(surface, self.btn_next_club, ">", C_DARK_GRAY, C_OFF_WHITE)
@@ -178,7 +184,11 @@ class HUD:
             pygame.draw.rect(surface, bg,     rect, border_radius=5)
             pygame.draw.rect(surface, accent, rect, 2, border_radius=5)
             lbl = self.font_small.render(shape.value, True, C_WHITE)
-            surface.blit(lbl, lbl.get_rect(center=rect.center))
+            # Draw a small shape glyph above the label so the buttons are
+            # distinguishable without relying on colour alone.
+            self._draw_shape_glyph(surface, rect, shape, C_WHITE)
+            surface.blit(lbl, lbl.get_rect(
+                centerx=rect.centerx, bottom=rect.bottom - 4))
 
         self._divider(surface, 434)
 
@@ -231,6 +241,61 @@ class HUD:
         pygame.draw.line(surface, C_DIVIDER,
                          (self.panel_x + 10, y),
                          (self.panel_x + PANEL_WIDTH - 10, y))
+
+    _BALL_COLOURS = {
+        "range":    (200, 200, 200),
+        "tour":     (240, 240, 240),
+        "distance": (250, 220, 120),
+        "spin":     (200, 120, 220),
+        "soft":     (180, 225, 240),
+        "pro_tour": (255, 255, 255),
+    }
+
+    def _draw_ball_pill(self, surface, ball_id, right_x, y):
+        """Compact active-ball badge: coloured dot + short label, right-aligned."""
+        from src.golf.ball_types import get_ball
+        info  = get_ball(ball_id)
+        label = info["label"]
+        lbl   = self.font_small.render(label, True, C_OFF_WHITE)
+        pad   = 6
+        w     = 14 + lbl.get_width() + pad * 2
+        h     = lbl.get_height() + 4
+        rect  = pygame.Rect(right_x - w, y, w, h)
+        pygame.draw.rect(surface, C_DARK_GRAY, rect, border_radius=h // 2)
+        pygame.draw.rect(surface, C_DIVIDER,   rect, 1, border_radius=h // 2)
+        dot_col = self._BALL_COLOURS.get(ball_id, (220, 220, 220))
+        pygame.draw.circle(surface, dot_col,
+                           (rect.x + pad + 4, rect.centery), 4)
+        pygame.draw.circle(surface, C_DARK_GRAY,
+                           (rect.x + pad + 4, rect.centery), 4, 1)
+        surface.blit(lbl, (rect.x + pad + 12, rect.y + 2))
+
+    def _draw_shape_glyph(self, surface, rect, shape, color):
+        """Tiny curve-arrow glyph centred near the top of a shape button.
+
+        Draw = curves left, Straight = arrow straight up, Fade = curves right.
+        Gives shape buttons a non-colour cue for colour-blind players.
+        """
+        from src.golf.shot import ShotShape
+        cx = rect.centerx
+        top = rect.y + 5
+        if shape == ShotShape.STRAIGHT:
+            pygame.draw.line(surface, color, (cx, top + 11), (cx, top), 2)
+            pygame.draw.polygon(surface, color,
+                                [(cx, top - 1), (cx - 3, top + 4), (cx + 3, top + 4)])
+            return
+        # DRAW curves left (points end up-left), FADE curves right.
+        sign = -1 if shape == ShotShape.DRAW else 1
+        pts = [(cx - sign * 6, top + 11),
+               (cx,            top + 7),
+               (cx + sign * 2, top + 1)]
+        pygame.draw.lines(surface, color, False, pts, 2)
+        tip = pts[-1]
+        pygame.draw.polygon(surface, color, [
+            tip,
+            (tip[0] - sign * 4, tip[1] + 3),
+            (tip[0] + sign * 1, tip[1] + 4),
+        ])
 
     def _draw_wind(self, surface, x, y, angle, strength):
         """Draw a compact wind indicator: compass arrow + cardinal + strength dots."""

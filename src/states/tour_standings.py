@@ -29,8 +29,8 @@ C_BTN_HOV   = ( 48, 120,  48)
 C_BTN_RED   = ( 78,  28,  28)
 C_BTN_RED_H = (120,  48,  48)
 
-SCREEN_W  = 1280
-SCREEN_H  = 720
+from src.constants import SCREEN_W, SCREEN_H
+
 ROW_H     = 22
 MAX_ROWS  = 22
 
@@ -129,10 +129,16 @@ class TourStandingsState:
                                  f"Promoted to the World Tour!",
                 }
             field = len(t.opponents) + 1 if t else 31
+            remaining = max(0, self.player.qschool_attempts_remaining)
+            if remaining > 0:
+                tail = (f" {remaining} attempt{'s' if remaining != 1 else ''} "
+                        f"remaining this season.")
+            else:
+                tail = " No attempts remaining — play another Tour 4 season to re-qualify."
             return {
                 "promoted": False,
                 "message":  f"Q-School missed — finished {self._ordinal(pos)} "
-                            f"of {field}. Top 15 needed.",
+                            f"of {field}. Top 15 needed.{tail}",
             }
 
         # ── Normal season end ─────────────────────────────────────────────────
@@ -225,10 +231,19 @@ class TourStandingsState:
         info = self._promotion_info or {}
 
         if info.get("promoted"):
-            p.tour_level      = info["new_level"]
-            p.qschool_pending = False
+            p.tour_level                   = info["new_level"]
+            p.qschool_pending              = False
+            p.qschool_attempts_remaining   = 0
         elif info.get("qschool_qualified"):
-            p.qschool_pending = True
+            # First-time qualification from a Tour 4 season finish.
+            p.qschool_pending              = True
+            p.qschool_attempts_remaining   = 2
+        elif self._is_qschool and not info.get("promoted"):
+            # Failed Q-School. If an attempt remains, let the player try again
+            # without replaying the whole season; otherwise they must re-earn
+            # qualification via another top-5 Tour 4 season.
+            if p.qschool_attempts_remaining > 0:
+                p.qschool_pending = True
 
         p.reset_season()
         self.game.current_tournament = None
@@ -353,12 +368,14 @@ class TourStandingsState:
             s = self.font_hdr.render(h, True, (150, 200, 120))
             surface.blit(s, (col[i] + 4, ty + 4))
 
+        total_in_table = len(self._standings)
         visible = self._standings[self._scroll: self._scroll + MAX_ROWS]
         for row_i, entry in enumerate(visible):
             real_pos = self._scroll + row_i + 1
             ry       = ty + 24 + row_i * ROW_H
             is_pl    = entry["is_player"]
             in_promo = threshold and real_pos <= threshold
+            is_last  = is_pl and real_pos == total_in_table
 
             # Row background
             if is_pl:
@@ -381,7 +398,10 @@ class TourStandingsState:
                          (col[0] + 4, ry + 3))
 
             name_str = ("★ " + entry["name"]) if is_pl else entry["name"]
-            surface.blit(self.font_small.render(name_str, True, tc),
+            if is_last:
+                name_str += "   — last place"
+            name_col = (210, 120, 120) if is_last else tc
+            surface.blit(self.font_small.render(name_str, True, name_col),
                          (col[1] + 4, ry + 3))
 
             surface.blit(self.font_small.render(entry["nationality"], True, C_GRAY),
