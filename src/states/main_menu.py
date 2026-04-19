@@ -41,6 +41,7 @@ C_RED_DIM    = ( 80,  24,  24)
 from src.constants import SCREEN_W, SCREEN_H
 from src.ui.menu_background import MenuBackground
 from src.ui.button          import draw_button
+from src.ui                 import fonts
 
 TOUR_NAMES = {
     1: "Amateur Circuit",
@@ -58,11 +59,11 @@ class MainMenuState:
     def __init__(self, game):
         self.game = game
 
-        self.font_title  = pygame.font.SysFont("arial", 72, bold=True)
-        self.font_sub    = pygame.font.SysFont("arial", 22)
-        self.font_btn    = pygame.font.SysFont("arial", 24, bold=True)
-        self.font_medium = pygame.font.SysFont("arial", 18)
-        self.font_small  = pygame.font.SysFont("arial", 14)
+        self.font_title  = fonts.heading(72)
+        self.font_sub    = fonts.body(22)
+        self.font_btn    = fonts.body(24, bold=True)
+        self.font_medium = fonts.body(18)
+        self.font_small  = fonts.body(14)
 
         self._bg = MenuBackground(SCREEN_W, SCREEN_H)
 
@@ -465,7 +466,8 @@ class MainMenuState:
         surface.blit(shadow, (tx + 3, ty + 4))
         surface.blit(title,  (tx, ty))
 
-        sub = self.font_sub.render("A Career Golf Adventure", True, C_SUB)
+        sub = fonts.render_shadowed(self.font_sub, "A Career Golf Adventure",
+                                    (168, 224, 128))
         surface.blit(sub, (cx - sub.get_width() // 2, 248))
 
         load_disabled = not self._saves
@@ -487,22 +489,22 @@ class MainMenuState:
             )
 
         if load_disabled:
-            hint = self.font_small.render("No save files found", True, (70, 85, 70))
+            hint = fonts.render_shadowed(self.font_small,
+                                         "No save files found", (170, 180, 170))
         else:
             info = self._previews[0]
             tour = TOUR_NAMES.get(info.get("tour_level", 1), "Amateur Circuit")
-            hint = self.font_small.render(
-                f"Last: {info['name']}  •  {tour}  •  "
+            hint = fonts.render_shadowed(
+                self.font_small,
+                f"Last: {info['name']}  -  {tour}  -  "
                 f"{info.get('events_played', 0)} events played",
-                True, (90, 140, 70))
+                (200, 235, 170))
         surface.blit(hint, (cx - hint.get_width() // 2, self._btn_new.top - 22))
 
-        ctrl_text = "N = New Game   •   Esc = Quit"
-        ctrl_shadow = self.font_small.render(ctrl_text, True, (0, 0, 0))
-        ctrl       = self.font_small.render(ctrl_text, True, (210, 230, 190))
-        cx_ctrl = cx - ctrl.get_width() // 2
-        surface.blit(ctrl_shadow, (cx_ctrl + 1, SCREEN_H - 29))
-        surface.blit(ctrl,        (cx_ctrl,     SCREEN_H - 30))
+        ctrl = fonts.render_shadowed(self.font_small,
+                                     "N = New Game   -   Esc = Quit",
+                                     (220, 235, 200))
+        surface.blit(ctrl, (cx - ctrl.get_width() // 2, SCREEN_H - 32))
 
         # Settings button
         sg_bg = C_BTN_HOV if self._hovered_settings else C_BTN

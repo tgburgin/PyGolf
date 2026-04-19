@@ -9,6 +9,7 @@ Free-play mode  : shows the running 18-hole scorecard.
 import pygame
 
 from src.ui.scorecard import Scorecard
+from src.ui           import fonts
 
 C_BG        = ( 12,  20,  12)
 C_HDR       = ( 28,  42,  28)
@@ -47,12 +48,12 @@ class HoleTransitionState:
 
         self.scorecard = Scorecard(course)
 
-        self.font_title  = pygame.font.SysFont("arial", 34, bold=True)
-        self.font_large  = pygame.font.SysFont("arial", 26, bold=True)
-        self.font_medium = pygame.font.SysFont("arial", 19)
-        self.font_small  = pygame.font.SysFont("arial", 15)
-        self.font_lb     = pygame.font.SysFont("arial", 15)
-        self.font_lb_hdr = pygame.font.SysFont("arial", 13, bold=True)
+        self.font_title  = fonts.heading(34)
+        self.font_large  = fonts.heading(26)
+        self.font_medium = fonts.body(19)
+        self.font_small  = fonts.body(15)
+        self.font_lb     = fonts.body(15)
+        self.font_lb_hdr = fonts.heading(13)
 
         btn_w, btn_h = 260, 48
         self.btn_next = pygame.Rect(

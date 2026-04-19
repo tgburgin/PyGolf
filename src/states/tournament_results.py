@@ -12,6 +12,7 @@ Shows:
 import pygame
 
 from src.career.tournament import TOUR_DISPLAY_NAMES
+from src.ui                import fonts
 
 # ── Colours ───────────────────────────────────────────────────────────────────
 C_BG        = ( 10,  16,  10)
@@ -65,11 +66,11 @@ class TournamentResultsState:
         self.tournament = tournament
         self.result     = result
 
-        self.font_title  = pygame.font.SysFont("arial", 36, bold=True)
-        self.font_hdr    = pygame.font.SysFont("arial", 15, bold=True)
-        self.font_medium = pygame.font.SysFont("arial", 16)
-        self.font_small  = pygame.font.SysFont("arial", 14)
-        self.font_large  = pygame.font.SysFont("arial", 22, bold=True)
+        self.font_title  = fonts.heading(36)
+        self.font_hdr    = fonts.heading(15)
+        self.font_medium = fonts.body(16)
+        self.font_small  = fonts.body(14)
+        self.font_large  = fonts.heading(22)
 
         self._leaderboard = tournament.get_leaderboard()
         self._scroll      = 0

@@ -13,6 +13,7 @@ Free-play mode (no tournament)
 import pygame
 
 from src.ui.scorecard import Scorecard
+from src.ui           import fonts
 
 # ── Colours ───────────────────────────────────────────────────────────────────
 C_BG        = ( 10,  16,  10)
@@ -86,12 +87,12 @@ class RoundSummaryState:
         self._tourn_result = CareerService(game).record_round(course, scores)
 
         # ── Fonts ─────────────────────────────────────────────────────────────
-        self.font_title  = pygame.font.SysFont("arial", 42, bold=True)
-        self.font_large  = pygame.font.SysFont("arial", 28, bold=True)
-        self.font_medium = pygame.font.SysFont("arial", 20)
-        self.font_small  = pygame.font.SysFont("arial", 15)
-        self.font_lb     = pygame.font.SysFont("arial", 16)
-        self.font_lb_hdr = pygame.font.SysFont("arial", 14, bold=True)
+        self.font_title  = fonts.heading(42)
+        self.font_large  = fonts.heading(28)
+        self.font_medium = fonts.body(20)
+        self.font_small  = fonts.body(15)
+        self.font_lb     = fonts.body(16)
+        self.font_lb_hdr = fonts.heading(14)
 
         # ── Layout ────────────────────────────────────────────────────────────
         sc_w = min(1140, SCREEN_W - 40)

@@ -11,6 +11,7 @@ Layout
 import pygame
 
 from src.career.player import NATIONALITIES, STAT_KEYS, BASE_STAT, MAX_STAT
+from src.ui            import fonts
 
 # ── Colours ───────────────────────────────────────────────────────────────────
 C_BG        = (  6,  12,   6)
@@ -53,12 +54,12 @@ class CharacterCreationState:
     def __init__(self, game):
         self.game = game
 
-        self.font_title  = pygame.font.SysFont("arial", 38, bold=True)
-        self.font_hdr    = pygame.font.SysFont("arial", 16, bold=True)
-        self.font_medium = pygame.font.SysFont("arial", 18)
-        self.font_small  = pygame.font.SysFont("arial", 14)
-        self.font_input  = pygame.font.SysFont("arial", 22)
-        self.font_large  = pygame.font.SysFont("arial", 26, bold=True)
+        self.font_title  = fonts.heading(38)
+        self.font_hdr    = fonts.heading(16)
+        self.font_medium = fonts.body(18)
+        self.font_small  = fonts.body(14)
+        self.font_input  = fonts.body(22)
+        self.font_large  = fonts.heading(26)
 
         # ── State ─────────────────────────────────────────────────────────────
         self._name        = ""

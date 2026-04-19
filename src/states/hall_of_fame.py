@@ -13,6 +13,7 @@ from src.career.majors   import MAJORS, MAJOR_ORDER
 from src.career.rankings import rank_label
 from src.golf.club       import CLUB_SETS
 from src.career.tournament import TOUR_DISPLAY_NAMES
+from src.ui                import fonts
 from src.constants        import SCREEN_W, SCREEN_H
 
 C_BG      = (  5,  10,   5)
@@ -61,11 +62,11 @@ class HallOfFameState:
         self.game   = game
         self.player = game.player
 
-        self.font_huge   = pygame.font.SysFont("arial", 54, bold=True)
-        self.font_title  = pygame.font.SysFont("arial", 34, bold=True)
-        self.font_hdr    = pygame.font.SysFont("arial", 18, bold=True)
-        self.font_med    = pygame.font.SysFont("arial", 16)
-        self.font_small  = pygame.font.SysFont("arial", 13)
+        self.font_huge   = fonts.heading(54)
+        self.font_title  = fonts.heading(34)
+        self.font_hdr    = fonts.heading(18)
+        self.font_med    = fonts.body(16)
+        self.font_small  = fonts.body(13)
 
         self._hov        = None
         self._time       = 0.0

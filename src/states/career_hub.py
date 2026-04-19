@@ -18,6 +18,7 @@ from src.career.tournament import TOUR_DISPLAY_NAMES, EVENTS_PER_SEASON
 from src.career.staff      import STAFF_TYPES, STAFF_ORDER
 from src.career.sponsorship import get_available_sponsors, is_target_met, progress_label
 from src.constants          import SCREEN_W, SCREEN_H
+from src.ui                  import fonts
 
 CONTENT_X  = 15
 CONTENT_Y  = 106   # below tab bar
@@ -70,10 +71,10 @@ class CareerHubState:
         self.game   = game
         self.player = game.player
 
-        self.font_title = pygame.font.SysFont("arial", 30, bold=True)
-        self.font_hdr   = pygame.font.SysFont("arial", 15, bold=True)
-        self.font_med   = pygame.font.SysFont("arial", 14)
-        self.font_small = pygame.font.SysFont("arial", 12)
+        self.font_title = fonts.heading(30)
+        self.font_hdr   = fonts.body(15, bold=True)
+        self.font_med   = fonts.body(14)
+        self.font_small = fonts.body(12)
 
         self._tab  = 0
         self._hov  = None

@@ -17,6 +17,8 @@ Holes not yet played show a dash.
 
 import pygame
 
+from src.ui import fonts
+
 # ── Palette ───────────────────────────────────────────────────────────────────
 C_BG        = ( 18,  24,  18)
 C_HEADER    = ( 35,  50,  35)
@@ -75,9 +77,9 @@ class Scorecard:
 
     def __init__(self, course):
         self.course    = course
-        self.font_hdr  = pygame.font.SysFont("arial", 15, bold=True)
-        self.font_cell = pygame.font.SysFont("arial", 14, bold=True)
-        self.font_lbl  = pygame.font.SysFont("arial", 12)
+        self.font_hdr  = fonts.heading(15)
+        self.font_cell = fonts.heading(14)
+        self.font_lbl  = fonts.body(12)
 
     def draw(self, surface, rect, scores):
         """Draw the scorecard into rect."""

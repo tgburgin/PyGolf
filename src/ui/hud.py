@@ -17,6 +17,7 @@ import pygame
 
 from src.golf.shot import ShotState, ShotShape, MAX_DRAG_PIXELS
 from src.utils.math_utils import clamp
+from src.ui import fonts
 
 # ── Colour palette ────────────────────────────────────────────────────────────
 C_BG         = ( 22,  28,  22)
@@ -44,9 +45,9 @@ class HUD:
         self.panel_x       = screen_width - PANEL_WIDTH
         self.panel_rect    = pygame.Rect(self.panel_x, 0, PANEL_WIDTH, screen_height)
 
-        self.font_large  = pygame.font.SysFont("arial", 28, bold=True)
-        self.font_medium = pygame.font.SysFont("arial", 19)
-        self.font_small  = pygame.font.SysFont("arial", 15)
+        self.font_large  = fonts.heading(28)
+        self.font_medium = fonts.body(19)
+        self.font_small  = fonts.body(15)
 
         self._build_buttons()
 

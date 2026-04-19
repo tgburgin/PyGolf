@@ -22,6 +22,8 @@ it automatically via handle_event.
 
 import pygame
 
+from src.ui import fonts
+
 
 _C_PANEL   = ( 14,  22,  14)
 _C_BORDER  = ( 58,  98,  58)
@@ -46,9 +48,9 @@ class AudioSettingsPanel:
             self._panel.centerx - 80, self._panel.bottom - 50, 160, 34)
 
         self._vol_btns: list[tuple[str, pygame.Rect, pygame.Rect]] = []
-        self._font_btn    = pygame.font.SysFont("arial", 24, bold=True)
-        self._font_medium = pygame.font.SysFont("arial", 18)
-        self._font_small  = pygame.font.SysFont("arial", 14)
+        self._font_btn    = fonts.heading(24)
+        self._font_medium = fonts.body(18)
+        self._font_small  = fonts.body(14)
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 

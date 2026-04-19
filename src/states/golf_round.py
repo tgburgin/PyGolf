@@ -23,6 +23,7 @@ from src.golf.terrain  import Terrain, TERRAIN_PROPS
 from src.golf.club     import STARTER_BAG
 from src.course.renderer import CourseRenderer
 from src.ui.hud        import HUD
+from src.ui             import fonts
 from src.utils.math_utils import clamp
 
 # ── Layout constants ──────────────────────────────────────────────────────────
@@ -95,8 +96,8 @@ class GolfRoundState:
         # ── UI ────────────────────────────────────────────────────────────────
         self.hud = HUD(SCREEN_W, SCREEN_H)
 
-        self.font_big = pygame.font.SysFont("arial", 40, bold=True)
-        self.font_med = pygame.font.SysFont("arial", 22)
+        self.font_big = fonts.heading(40)
+        self.font_med = fonts.body(22)
 
         # ── Wind — randomised once per hole ──────────────────────────────────
         self.wind_angle    = random.uniform(0, 2 * math.pi)
@@ -709,9 +710,9 @@ class GolfRoundState:
         pygame.draw.rect(surface, (14, 22, 14), panel, border_radius=12)
         pygame.draw.rect(surface, (58, 98, 58), panel, 2, border_radius=12)
 
-        font_title = pygame.font.SysFont("arial", 30, bold=True)
-        font_line  = pygame.font.SysFont("arial", 20)
-        font_hint  = pygame.font.SysFont("arial", 16)
+        font_title = fonts.heading(30)
+        font_line  = fonts.body(20)
+        font_hint  = fonts.body(16)
 
         title = font_title.render("How to play", True, (168, 224, 88))
         surface.blit(title, (panel.centerx - title.get_width() // 2, panel.y + 22))
@@ -838,9 +839,9 @@ class GolfRoundState:
         pygame.draw.rect(surface, (14, 22, 14), panel, border_radius=12)
         pygame.draw.rect(surface, (58, 98, 58), panel, 2, border_radius=12)
 
-        title_font = pygame.font.SysFont("arial", 28, bold=True)
-        body_font  = pygame.font.SysFont("arial", 18)
-        btn_font   = pygame.font.SysFont("arial", 20, bold=True)
+        title_font = fonts.heading(28)
+        body_font  = fonts.body(18)
+        btn_font   = fonts.heading(20)
 
         title = title_font.render("Paused", True, (168, 224, 88))
         surface.blit(title, (panel.centerx - title.get_width() // 2, panel.y + 22))
