@@ -24,6 +24,12 @@ import glob as _glob
 
 from src.course.course import Course
 
+# Read the dev switch — defaults to False (use JSON) if dev_config.py is absent.
+try:
+    from dev_config import USE_GENERATED_COURSES as _USE_GENERATED
+except ImportError:
+    _USE_GENERATED = False
+
 # Tour IDs in progression order
 TOUR_ORDER = [
     "amateur",
@@ -58,15 +64,20 @@ def get_courses_for_tour(tour_id: str) -> list[Course]:
     """
     Return all Course objects for *tour_id*.
 
-    JSON courses in data/courses/<tour_id>/ are loaded first via
-    course_loader.  If none exist the legacy Python-built courses are
-    returned as a fallback (amateur tour only).
+    When dev_config.USE_GENERATED_COURSES is True the generated Python courses
+    are always used, regardless of what JSON files exist in data/courses/.
+    Set it to False when your custom courses are complete.
+
+    Otherwise JSON courses in data/courses/<tour_id>/ are loaded first; the
+    generated Python courses are used as a fallback if none are found.
     """
-    courses = _load_json_courses(tour_id)
-    if not courses:
-        from src.data.courses_library import get_courses_for_tour_id
-        courses = get_courses_for_tour_id(tour_id)
-    return courses
+    if not _USE_GENERATED:
+        courses = _load_json_courses(tour_id)
+        if courses:
+            return courses
+
+    from src.data.courses_library import get_courses_for_tour_id
+    return get_courses_for_tour_id(tour_id)
 
 
 def discover_course_paths(tour_id: str) -> list[str]:
