@@ -13,13 +13,12 @@ Save panel
   Clicking Delete shows a confirmation overlay before the file is removed.
 """
 
-import os
 import sys
 
 import pygame
 
 from src.utils.save_system import (
-    list_saves, get_save_preview, load_game,
+    list_saves, get_save_preview, load_game, delete_save,
     SaveVersionError, SaveCorruptError,
 )
 
@@ -330,7 +329,7 @@ class MainMenuState:
         """Delete the save file at index idx, then refresh the list."""
         try:
             path = self._saves[idx]
-            os.remove(path)
+            delete_save(path)
         except Exception as e:
             print(f"Failed to delete save: {e}")
         finally:

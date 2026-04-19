@@ -8,6 +8,9 @@ __pycache__/
 saves/
 data/settings.json
 
+# ── pygbag web/Android build output ───────────────────────────────────────────
+build/
+
 # ── Editor working files ──────────────────────────────────────────────────────
 tools/editor/.recent_files.json
 

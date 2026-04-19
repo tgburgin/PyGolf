@@ -28,8 +28,12 @@ ShotResult = namedtuple('ShotResult', ['target_x', 'target_y', 'aim_x', 'aim_y',
 # How far (px) the player must drag to reach 100% power.
 MAX_DRAG_PIXELS = 130
 
-# Click must be within this many screen pixels of the ball to start aiming.
-AIM_CLICK_RADIUS = 50
+# Click/tap must be within this many virtual pixels of the ball to start
+# aiming. Sized for a fingertip — a mouse cursor only needs ~30 px, but on
+# a phone the finger both covers and slightly misses the target, so this is
+# generous on purpose. Stays in virtual coords (see main.py) so it reads
+# the same whether the device is a 4" phone or a 27" monitor.
+AIM_CLICK_RADIUS = 80
 
 # How much lateral curve is applied as a fraction of total shot distance.
 SHAPE_CURVE_FRACTION = 0.15

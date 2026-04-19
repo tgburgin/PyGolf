@@ -164,11 +164,37 @@ Volume for Master, Sound Effects, and Ambient can be adjusted in the Settings pa
 
 ---
 
+## Play on your phone (Android / iOS)
+
+The game ships with a web build path using [pygbag](https://pypi.org/project/pygbag/), which compiles the Python + pygame-ce code to WebAssembly. There is **no APK** — you play it in the phone's browser (Chrome, Safari, etc.), and it feels like a native app when launched from the home screen.
+
+```bash
+# One-off: install the web-build tool
+pip install pygbag
+
+# Serve locally for testing — visit http://<dev-machine-ip>:8000 on your phone
+pygbag main.py
+
+# Produce a deployable bundle in ./build/web/
+pygbag --build main.py
+```
+
+Upload the contents of `build/web/` to any static host (GitHub Pages, Netlify, Cloudflare Pages, …) and share the URL. Players tap **Add to Home Screen** in the browser menu to get an app-style launcher.
+
+**Tips for the best phone experience**
+- **Rotate to landscape.** The game targets 1280×720 and will show a "rotate your phone" prompt in portrait; after your first tap it will also request fullscreen and try to pin the orientation.
+- **Tap the ball, then drag.** The tap zone around the ball is enlarged for fingertips (no need to hit the pixel exactly).
+- **Audio unlocks on first tap.** Browsers won't start audio until the user interacts — you'll hear the first swing but the ambient track may only kick in on the next hole.
+- **Career saves live in browser localStorage**, so they persist across sessions. Clearing the site's data in browser settings will wipe career progress — don't do that mid-season.
+
+---
+
 ## Dependencies
 
 | Package | Purpose | Install |
 |---|---|---|
 | `pygame-ce` | Game rendering, input, audio | `pip install pygame-ce` |
 | `pygame_gui` | Editor UI panels | `pip install pygame_gui` *(editor only)* |
+| `pygbag` | Build for web / Android browsers | `pip install pygbag` *(web build only)* |
 
-No other dependencies. Everything else uses the Python standard library.
+No other runtime dependencies. Everything else uses the Python standard library.
