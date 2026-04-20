@@ -1882,24 +1882,79 @@ def make_championship_bay() -> Course:
 # Public API
 # ═════════════════════════════════════════════════════════════════════════════
 
-def python_courses_for_tour(tour_id: str) -> list:
-    """Fallback pool of Python-built courses. Use tours_data.get_courses_for_tour
-    from gameplay code instead of this directly."""
+# Per-tour course counts and yardage-rank windows, following the owner's
+# scheme in issue #3. Owner specified 49 course slots across 6 tours using
+# overlapping rank windows on a sorted-by-yardage list. With fewer than 49
+# courses the windows are scaled proportionally; tour sizes are preserved and
+# each tour takes `size` courses centered on the scaled midpoint of its window.
+_TOUR_PLAN = [
+    # tour_id,        size, owner_min, owner_max
+    ("amateur",        8,    1,  8),
+    ("challenger",    10,    5, 14),
+    ("development",   12,   11, 22),
+    ("continental",   14,   15, 28),
+    ("world",         16,   23, 38),
+    ("grand",         18,   29, 49),
+]
+
+
+def _all_course_factories() -> list:
     from src.data.courses_data import make_greenfields_course
-    _MAP = {
-        "amateur":     [make_greenfields_course, make_riverside_meadows,
-                        make_hollowcrest_downs],
-        "challenger":  [make_coastal_pines, make_lakewood_links],
-        "development": [make_heathland_park, make_moorside_open],
-        "continental": [make_royal_highlands, make_westgate_classic],
-        "world":       [make_championship_links, make_eagle_ridge],
-        "grand":       [make_augusta_classic, make_heritage_links,
-                        make_royal_open_links, make_grand_classic_gc],
-    }
-    courses = []
-    for fn in _MAP.get(tour_id, []):
+    return [
+        make_greenfields_course,
+        make_riverside_meadows, make_coastal_pines, make_lakewood_links,
+        make_heathland_park, make_moorside_open, make_royal_highlands,
+        make_westgate_classic, make_championship_links, make_eagle_ridge,
+        make_augusta_classic, make_heritage_links, make_royal_open_links,
+        make_grand_classic_gc, make_hollowcrest_downs,
+        make_pine_valley_links, make_sunridge_park, make_willow_glen,
+        make_millbrook_common, make_brackenridge_gc, make_pinehurst_valley,
+        make_sandstone_links, make_clifftop_manor, make_dunmore_bay,
+        make_inverness_gc, make_gleneagles_view, make_stonehaven_links,
+        make_the_ridgeway, make_pines_championship, make_loch_haven,
+        make_highland_masters, make_olympia_links, make_diamond_crown,
+        make_championship_bay,
+    ]
+
+
+_SORTED_CACHE: list | None = None
+
+
+def _sorted_courses() -> list:
+    global _SORTED_CACHE
+    if _SORTED_CACHE is not None:
+        return _SORTED_CACHE
+    built = []
+    for fn in _all_course_factories():
         try:
-            courses.append(fn())
+            c = fn()
+            yds = sum(h.yardage for h in c.holes)
+            built.append((yds, c))
         except Exception as exc:
             print(f"[courses_library] {fn.__name__} failed: {exc}")
-    return courses
+    built.sort(key=lambda t: t[0])
+    _SORTED_CACHE = [c for _, c in built]
+    return _SORTED_CACHE
+
+
+def python_courses_for_tour(tour_id: str) -> list:
+    """Return the course pool for *tour_id*, chosen by total yardage.
+
+    Courses are sorted by total yardage and sliced into overlapping windows per
+    the scheme in issue #3. Use tours_data.get_courses_for_tour from gameplay
+    code instead of this directly."""
+    plan = next((p for p in _TOUR_PLAN if p[0] == tour_id), None)
+    if plan is None:
+        return []
+    _, size, o_min, o_max = plan
+    sorted_courses = _sorted_courses()
+    n = len(sorted_courses)
+    if n == 0:
+        return []
+    # Scale owner's 49-slot midpoint into our actual course count, then take
+    # `size` courses centered on that rank (clamped to valid range).
+    center = ((o_min + o_max) / 2.0) * (n / 49.0)
+    start = int(round(center - size / 2.0))
+    start = max(0, min(n - size, start)) if n >= size else 0
+    return list(sorted_courses[start:start + size]) if n >= size \
+        else list(sorted_courses)
